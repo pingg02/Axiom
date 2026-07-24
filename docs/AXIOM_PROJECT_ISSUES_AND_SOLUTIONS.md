@@ -1057,3 +1057,22 @@ cd E:\reasonix
 - Electron 打包契约测试：`python -m pytest reasonix-py\tests\unit\test_electron_packaging.py -q`，11 passed。
 - Electron installer rebuild 成功。
 - 真实 exe 首启烟测确认配置弹窗包含 DeepSeek OpenAI、DeepSeek Anthropic、OpenAI Compatible、Anthropic Compatible。
+
+## 30. 清理旧 Wails/Go 桌面遗留代码
+
+### 问题
+
+GitHub 语言统计显示 Go 占比最高，但当前 Axiom 的实际运行链路已经是 Electron + React + Python + Java。`desktop/` 根目录下的 Go 文件来自旧 Wails 桌面壳，没有被当前 `build_all.ps1` 或 Electron 打包路径使用，还会误导仓库语言统计和维护判断。
+
+### 修复
+
+- 删除旧 Wails/Go 桌面源文件、旧 Wails README、`desktop/wails.json` 和对应 macOS Objective-C 辅助文件。
+- 保留当前使用的 `desktop/electron`、`desktop/python-frontend`、`reasonix-py`、`reasonix-java`。
+- 保留 `desktop/installer.nsi` 与 `desktop/launcher.bat`，因为现有构建脚本仍包含 legacy installer 路径。
+
+### 验证
+
+- `git ls-files '*.go' '*.m' desktop/wails.json desktop/README.md`：无输出。
+- `desktop/` 根目录只剩 `electron`、`python-frontend`、`.gitignore`、`installer.nsi`、`launcher.bat`。
+- 仓库语言体积重新排序后 Python 位于第一，Go 不再计入。
+- `python -m pytest reasonix-py\tests\unit\test_electron_packaging.py -q`：11 passed。
