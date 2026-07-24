@@ -1,0 +1,42 @@
+{
+  "name": "axiom-desktop",
+  "version": "0.2.0",
+  "description": "Axiom desktop AI coding workbench",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.axiom.desktop",
+    "productName": "Axiom",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "frontend/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../../reasonix-py/dist/reasonix.exe",
+        "to": "reasonix-server.exe"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

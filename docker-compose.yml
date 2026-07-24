@@ -1,0 +1,86 @@
+version: "3.9"
+
+services:
+  # ── Java 安全层服务 ──────────────────────────────────────────────────
+  java-security:
+    build:
+      context: ./reasonix-java
+    container_name: reasonix-java
+    ports:
+      - "9091:9091"   # gRPC
+      - "8081:8081"   # HTTP health
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - REDIS_HOST=redis
+      - RABBITMQ_HOST=rabbitmq
+    depends_on:
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - reasonix-net
+
+  # ── Python 编排层服务 ────────────────────────────────────────────────
+  python-orchestrator:
+    build:
+      context: ./reasonix-py
+    container_name: reasonix-py
+    ports:
+      - "8080:8080"   # FastAPI + SSE
+      - "9092:9092"   # WebSocket 桌面桥接
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - JAVA_SECURITY_HOST=java-security
+      - JAVA_SECURITY_PORT=9091
+    depends_on:
+      - java-security
+    restart: unless-stopped
+    networks:
+      - reasonix-net
+    volumes:
+      - ./:/workspace  # 挂载项目目录供工具操作
+
+  # ── React 前端 ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./desktop/python-frontend
+    container_name: reasonix-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - python-orchestrator
+    restart: unless-stopped
+    networks:
+      - reasonix-net
+
+  # ── 基础设施 ─────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: reasonix-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - reasonix-net
+    volumes:
+      - redis-data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-alpine
+    container_name: reasonix-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: unless-stopped
+    networks:
+      - reasonix-net
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+networks:
+  reasonix-net:
+    driver: bridge
+
+volumes:
+  redis-data:
+  rabbitmq-data:

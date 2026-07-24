@@ -1,0 +1,410 @@
+:root {
+  color: #e9edf5;
+  background: #0b0e13;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  color-scheme: dark;
+  --ink: #e9edf5;
+  --muted: #8490a3;
+  --dim: #5b6575;
+  --line: rgba(255, 255, 255, .075);
+  --panel: rgba(22, 26, 34, .9);
+  --green: #6ee7b7;
+  --amber: #f6c76a;
+  --red: #fb7185;
+  --blue: #8ea8ff;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 720px; min-height: 600px; overflow: hidden; }
+button, textarea { font: inherit; }
+button { border: 0; }
+body::before {
+  position: fixed;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 78% -10%, rgba(78, 113, 170, .16), transparent 34%),
+    radial-gradient(circle at 25% 110%, rgba(44, 120, 96, .1), transparent 34%),
+    linear-gradient(135deg, #090c11, #10141b 60%, #0b0e13);
+}
+
+.axiom-shell { position: relative; display: grid; grid-template-columns: 232px minmax(0, 1fr); height: 100vh; }
+.axiom-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 14px 18px;
+  background: rgba(7, 10, 14, .88);
+  border-right: 1px solid var(--line);
+  backdrop-filter: blur(24px);
+}
+.axiom-brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 4px; }
+.axiom-mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(110, 231, 183, .34);
+  border-radius: 11px;
+  background: linear-gradient(145deg, rgba(110, 231, 183, .16), rgba(142, 168, 255, .08));
+  box-shadow: inset 0 0 16px rgba(110, 231, 183, .05), 0 12px 28px rgba(0, 0, 0, .32);
+}
+.axiom-mark span, .axiom-kicker, .axiom-runtime small, .axiom-project > strong,
+.axiom-metric strong, .axiom-tool-grid strong, .axiom-tool-grid i,
+.axiom-tool-head strong, .axiom-tool-timeline p, .axiom-details dd,
+.axiom-session-card strong {
+  font-family: "JetBrains Mono", Consolas, monospace;
+}
+.axiom-mark span { color: var(--green); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.axiom-brand-name { font-size: 19px; font-weight: 700; letter-spacing: -.035em; }
+.axiom-brand-sub { margin-top: 2px; color: var(--dim); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+.axiom-new-task {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border: 1px solid rgba(110, 231, 183, .2);
+  border-radius: 11px;
+  background: rgba(110, 231, 183, .09);
+  color: #dffbf0;
+  font-weight: 600;
+  cursor: pointer;
+}
+.axiom-new-task:hover { border-color: rgba(110, 231, 183, .42); background: rgba(110, 231, 183, .15); }
+.axiom-new-task span { color: var(--green); font-size: 17px; }
+
+.axiom-nav { display: grid; gap: 4px; }
+.axiom-nav button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 11px;
+  border-radius: 10px;
+  background: transparent;
+  color: #aeb7c6;
+  text-align: left;
+  cursor: pointer;
+}
+.axiom-nav button::before { position: absolute; left: -14px; width: 2px; height: 22px; border-radius: 2px; background: transparent; content: ""; }
+.axiom-nav button:hover { color: var(--ink); background: rgba(255, 255, 255, .035); }
+.axiom-nav button.is-active { color: #f4f7fb; background: rgba(255, 255, 255, .06); }
+.axiom-nav button.is-active::before { background: var(--green); box-shadow: 0 0 10px rgba(110, 231, 183, .55); }
+.axiom-nav-icon { color: #667183; font-family: Consolas, monospace; font-size: 16px; text-align: center; }
+.axiom-nav button.is-active .axiom-nav-icon { color: var(--green); }
+.axiom-nav button > span:nth-child(2) { display: grid; gap: 1px; }
+.axiom-nav strong { font-size: 13px; font-weight: 600; }
+.axiom-nav small { color: #586273; font-size: 10px; }
+.axiom-nav i { min-width: 18px; padding: 2px 5px; border-radius: 10px; background: rgba(246, 199, 106, .14); color: var(--amber); font-size: 10px; font-style: normal; text-align: center; }
+.axiom-project { display: grid; gap: 9px; margin-top: auto; padding: 13px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255, 255, 255, .025); }
+.axiom-project-top { display: flex; justify-content: space-between; color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+.axiom-project-top em { color: var(--green); font-style: normal; }
+.axiom-project > strong { overflow: hidden; color: #cfd6e2; font-size: 9px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-project-stats { display: flex; gap: 8px; color: #657083; font-size: 9px; }
+
+.axiom-main { display: flex; flex-direction: column; min-width: 0; padding: 22px 24px 20px; overflow: hidden; }
+.axiom-topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.axiom-kicker { color: var(--green); font-size: 8px; font-weight: 600; letter-spacing: .16em; }
+.axiom-topbar h1 { margin: 4px 0 1px; font-size: 25px; letter-spacing: -.045em; }
+.axiom-topbar p { margin: 0; color: var(--dim); font-size: 10px; }
+.axiom-runtime { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255, 255, 255, .025); }
+.axiom-runtime > div { display: grid; gap: 2px; }
+.axiom-runtime strong { font-size: 10px; }
+.axiom-runtime small { color: var(--dim); font-size: 8px; }
+.axiom-live, .axiom-server-list > div > span { width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 8px rgba(251, 113, 133, .4); }
+.axiom-live.is-online, .axiom-server-list > div > span.is-online { background: var(--green); box-shadow: 0 0 8px rgba(110, 231, 183, .5); }
+.axiom-alert { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 9px 12px; border: 1px solid rgba(251, 113, 133, .22); border-radius: 10px; background: rgba(87, 27, 39, .26); color: #ffc4ce; font-size: 10px; }
+.axiom-alert button { padding: 5px 8px; border-radius: 6px; background: rgba(251, 113, 133, .14); color: #ffd9df; cursor: pointer; }
+
+.axiom-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 17px 0 14px; }
+.axiom-metric { display: grid; gap: 2px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 11px; background: rgba(18, 22, 29, .76); }
+.axiom-metric > span { color: var(--dim); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+.axiom-metric strong { font-size: 15px; font-weight: 600; }
+.axiom-metric small { color: #647083; font-size: 8px; }
+.axiom-metric.is-danger { border-color: rgba(251, 113, 133, .22); }
+.axiom-metric.is-danger strong { color: var(--red); }
+
+.axiom-workbench { display: grid; grid-template-columns: minmax(0, 1fr) 294px; gap: 13px; min-height: 0; flex: 1; }
+.axiom-stage, .axiom-rail { min-height: 0; }
+.axiom-rail { display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 11px; }
+.axiom-panel, .axiom-section { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: 0 16px 50px rgba(0, 0, 0, .16); }
+.axiom-panel { padding: 13px; overflow: auto; }
+.axiom-panel-title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.axiom-panel-title span { font-size: 10px; font-weight: 600; }
+.axiom-panel-title em { color: var(--dim); font-size: 8px; font-style: normal; }
+.axiom-capabilities { display: grid; gap: 8px; }
+.axiom-capabilities > div { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 9px; }
+.axiom-capabilities strong { color: #c9d1dd; font-size: 8px; font-weight: 500; }
+
+.axiom-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.axiom-prompts { display: flex; gap: 7px; padding-bottom: 10px; overflow-x: auto; }
+.axiom-prompts button { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; max-width: 290px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, .025); color: #8d98a9; font-size: 9px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.axiom-prompts button:hover { color: #dbe2ec; border-color: rgba(110, 231, 183, .2); }
+.axiom-prompts button span { color: var(--green); }
+.axiom-prompts button:disabled { opacity: .45; cursor: not-allowed; }
+.axiom-messages { display: flex; flex-direction: column; gap: 14px; flex: 1; min-height: 0; padding: 14px 13px; border: 1px solid var(--line); border-radius: 14px 14px 0 0; background: rgba(14, 17, 23, .72); overflow: auto; }
+.axiom-message { display: grid; grid-template-columns: 27px minmax(0, 1fr); gap: 9px; }
+.axiom-avatar { display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid rgba(110, 231, 183, .2); border-radius: 8px; background: rgba(110, 231, 183, .08); color: var(--green); font-family: Consolas, monospace; font-size: 8px; font-weight: 700; }
+.axiom-message.is-user .axiom-avatar { border-color: rgba(142, 168, 255, .2); background: rgba(142, 168, 255, .08); color: var(--blue); }
+.axiom-message.is-tool .axiom-avatar, .axiom-message.is-approval .axiom-avatar, .axiom-message.is-ask .axiom-avatar { color: var(--amber); border-color: rgba(246, 199, 106, .22); background: rgba(246, 199, 106, .07); }
+.axiom-message.is-error .axiom-avatar { color: var(--red); border-color: rgba(251, 113, 133, .25); background: rgba(251, 113, 133, .08); }
+.axiom-bubble { min-width: 0; padding: 1px 0 5px; }
+.axiom-message-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.axiom-message-meta strong { color: #b8c1ce; font-size: 9px; font-weight: 600; }
+.axiom-message-meta span { padding: 2px 5px; border-radius: 5px; background: rgba(110, 231, 183, .09); color: var(--green); font-size: 8px; }
+.axiom-bubble pre, .axiom-tool-timeline pre, .axiom-error-log { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #dce2eb; font-family: Consolas, "Microsoft YaHei", monospace; font-size: 10px; line-height: 1.65; }
+.axiom-message.is-notice .axiom-bubble pre { color: #778397; }
+.axiom-message.is-error .axiom-bubble pre { color: #ffc4ce; }
+.axiom-message.is-tool .axiom-bubble { padding: 8px 10px; border: 1px solid rgba(246, 199, 106, .1); border-radius: 9px; background: rgba(246, 199, 106, .035); }
+.axiom-message.is-approval .axiom-bubble, .axiom-message.is-ask .axiom-bubble { padding: 11px; border: 1px solid rgba(246, 199, 106, .2); border-radius: 11px; background: linear-gradient(135deg, rgba(74, 55, 21, .3), rgba(30, 34, 43, .55)); }
+.axiom-approval-anchor { margin-top: 9px; padding: 7px 9px; border-radius: 7px; background: rgba(246, 199, 106, .06); color: #a8956d; font-size: 8px; }
+.axiom-approval-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.axiom-approval-actions button, .axiom-submit-answer { padding: 7px 10px; border-radius: 7px; font-size: 9px; font-weight: 600; cursor: pointer; }
+.axiom-approval-actions .is-allow, .axiom-submit-answer { background: var(--green); color: #07140f; }
+.axiom-approval-actions .is-session { border: 1px solid rgba(246, 199, 106, .28); background: rgba(246, 199, 106, .1); color: #f7d391; }
+.axiom-approval-actions .is-auto-all { border: 1px solid rgba(142, 168, 255, .34); background: rgba(142, 168, 255, .12); color: #b9c8ff; }
+.axiom-approval-actions .is-deny { border: 1px solid rgba(251, 113, 133, .25); background: rgba(251, 113, 133, .08); color: #ffacb9; }
+.axiom-approval-actions kbd { margin-left: 5px; color: currentColor; font-family: Consolas, monospace; font-size: 7px; opacity: .58; }
+.axiom-ask { display: grid; gap: 12px; margin-top: 11px; }
+.axiom-ask section { display: grid; gap: 7px; }
+.axiom-ask section > strong { color: #f0e4c6; font-size: 10px; }
+.axiom-ask-label { color: var(--amber); font-size: 8px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.axiom-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.axiom-options button { display: flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .035); color: #aab3c1; font-size: 9px; cursor: pointer; }
+.axiom-options button.is-selected { border-color: rgba(246, 199, 106, .35); background: rgba(246, 199, 106, .12); color: #f7ddb0; }
+.axiom-options button span { color: var(--amber); }
+.axiom-submit-answer { width: fit-content; }
+.axiom-submit-answer:disabled { opacity: .38; cursor: not-allowed; }
+.axiom-composer { position: relative; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 14px 14px; background: rgba(10, 13, 18, .96); }
+.axiom-approval-dock { display: grid; gap: 9px; padding: 10px 12px; border-bottom: 1px solid rgba(246, 199, 106, .18); background: linear-gradient(115deg, rgba(77, 55, 19, .44), rgba(21, 26, 34, .96)); box-shadow: inset 3px 0 0 rgba(246, 199, 106, .72); }
+.axiom-approval-dock-main { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.axiom-approval-dock-icon { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid rgba(246, 199, 106, .28); border-radius: 7px; background: rgba(246, 199, 106, .1); color: var(--amber); font: 700 10px Consolas, monospace; }
+.axiom-approval-dock-main > div { display: grid; min-width: 0; gap: 2px; }
+.axiom-approval-dock-main strong { color: #f2dfb6; font: 600 9px Consolas, monospace; }
+.axiom-approval-dock-main span { overflow: hidden; color: #aab1bc; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-approval-dock-main small { color: #8d7952; font: 7px Consolas, monospace; }
+.axiom-approval-batch-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding-top: 7px; border-top: 1px solid rgba(246, 199, 106, .1); }
+.axiom-approval-batch-actions span { margin-right: auto; color: #a8956d; font-size: 8px; }
+.axiom-approval-batch-actions button { padding: 5px 8px; border-radius: 6px; font-size: 8px; font-weight: 650; cursor: pointer; }
+.axiom-approval-batch-actions .is-allow-all { background: var(--green); color: #07140f; }
+.axiom-approval-batch-actions .is-session-all { border: 1px solid rgba(246, 199, 106, .28); background: rgba(246, 199, 106, .1); color: #f7d391; }
+.axiom-approval-batch-actions .is-deny-all { border: 1px solid rgba(251, 113, 133, .25); background: rgba(251, 113, 133, .08); color: #ffacb9; }
+.axiom-composer-input { position: relative; }
+.axiom-composer textarea { width: 100%; height: 70px; max-height: 150px; resize: vertical; padding: 12px 13px 4px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 10px; line-height: 1.5; }
+.axiom-composer textarea::placeholder { color: #4e5867; }
+.axiom-composer-footer { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 8px 13px; }
+.axiom-composer-tools { display: flex; align-items: center; gap: 6px; }
+.axiom-composer-tools button { display: grid; place-items: center; width: 24px; height: 22px; border: 1px solid var(--line); border-radius: 6px; background: rgba(255, 255, 255, .025); color: #94a0b1; font: 700 10px Consolas, monospace; cursor: pointer; }
+.axiom-composer-tools button:hover { border-color: rgba(110, 231, 183, .25); color: var(--green); }
+.axiom-composer-tools button:disabled { opacity: .35; cursor: not-allowed; }
+.axiom-composer-tools span { color: #495362; font-size: 8px; }
+.axiom-completion-menu { display: grid; max-height: min(330px, 42vh); padding: 7px; border-bottom: 1px solid var(--line); background: #10151d; overflow: auto; box-shadow: 0 -16px 38px rgba(0, 0, 0, .22); }
+.axiom-completion-menu section { display: grid; gap: 2px; }
+.axiom-completion-menu section + section { margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(255, 255, 255, .04); }
+.axiom-completion-menu section > span { padding: 4px 7px 3px; color: #586476; font-size: 7px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.axiom-completion-menu button { display: grid; grid-template-columns: minmax(86px, auto) minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #aeb8c7; text-align: left; cursor: pointer; }
+.axiom-completion-menu button:hover, .axiom-completion-menu button.is-active { border-color: rgba(110, 231, 183, .14); background: rgba(110, 231, 183, .065); }
+.axiom-completion-menu button strong { color: #dce5ef; font: 600 9px Consolas, monospace; }
+.axiom-completion-menu button code { color: #657185; font: 7px Consolas, monospace; }
+.axiom-completion-menu button small { min-width: 0; overflow: hidden; color: #7e8999; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-completion-menu button i { color: var(--green); font-size: 7px; font-style: normal; }
+.axiom-completion-empty { padding: 16px 10px; color: #657185; font-size: 9px; text-align: center; }
+.axiom-send, .axiom-stop { padding: 7px 12px; border-radius: 8px; font-size: 9px; font-weight: 700; cursor: pointer; }
+.axiom-send { background: var(--green); color: #07140f; }
+.axiom-send:disabled { opacity: .35; cursor: not-allowed; }
+.axiom-stop { border: 1px solid rgba(251, 113, 133, .25); background: rgba(251, 113, 133, .1); color: #ffacb9; }
+
+.axiom-module { display: grid; gap: 11px; height: 100%; overflow: auto; }
+.axiom-two-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+.axiom-section { padding: 16px; overflow: auto; }
+.axiom-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.axiom-section-heading > div { display: grid; gap: 3px; }
+.axiom-section-heading span { color: var(--green); font-family: Consolas, monospace; font-size: 8px; letter-spacing: .14em; }
+.axiom-section-heading h2 { margin: 0; font-size: 15px; letter-spacing: -.02em; }
+.axiom-section-heading em { color: var(--dim); font-size: 9px; font-style: normal; }
+.axiom-section-heading button { padding: 7px 10px; border-radius: 7px; background: rgba(110, 231, 183, .1); color: var(--green); font-size: 9px; cursor: pointer; }
+.axiom-section-heading button:disabled { opacity: .35; cursor: not-allowed; }
+.axiom-change-list { display: grid; gap: 10px; }
+.axiom-diff { min-width: 0; overflow: hidden; border: 1px solid rgba(110, 231, 183, .14); border-radius: 10px; background: rgba(8, 12, 18, .72); }
+.axiom-diff header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 11px; border-bottom: 1px solid var(--line); }
+.axiom-diff header > div { display: grid; min-width: 0; gap: 3px; }
+.axiom-diff header strong { overflow: hidden; color: #dce4ee; font-family: Consolas, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-diff header span { color: var(--dim); font-size: 8px; }
+.axiom-diff header em { display: flex; gap: 7px; font-family: Consolas, monospace; font-size: 8px; font-style: normal; }
+.axiom-diff header b { color: var(--green); }
+.axiom-diff header i { color: var(--red); font-style: normal; }
+.axiom-diff pre { max-height: 320px; margin: 0; padding: 10px 12px; overflow: auto; white-space: pre; color: #aeb9c8; font-family: Consolas, monospace; font-size: 8px; line-height: 1.55; }
+.axiom-diff > p { margin: 0; padding: 12px; color: var(--dim); font-size: 9px; }
+.axiom-diff.is-compact { margin-top: 8px; }
+.axiom-diff.is-compact pre { max-height: 190px; }
+.axiom-workflow-editor { display: grid; gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255, 255, 255, .02); }
+.axiom-workflow-editor label { display: grid; gap: 6px; }
+.axiom-workflow-editor label > span { color: var(--dim); font-size: 9px; }
+.axiom-workflow-editor input, .axiom-workflow-editor textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(5, 9, 14, .7); color: var(--text); font: 10px/1.55 "Microsoft YaHei", sans-serif; outline: none; resize: vertical; }
+.axiom-workflow-editor textarea { min-height: 62px; }
+.axiom-workflow-editor input:focus, .axiom-workflow-editor textarea:focus { border-color: rgba(110, 231, 183, .34); }
+.axiom-workflow-steps { display: grid; gap: 9px; }
+.axiom-workflow-steps label { position: relative; }
+.axiom-workflow-steps label > button { position: absolute; top: 0; right: 0; color: var(--red); font-size: 8px; cursor: pointer; }
+.axiom-workflow-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.axiom-workflow-editor-actions button, .axiom-workflow-list footer button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 7px; color: #abb5c4; font-size: 9px; cursor: pointer; }
+.axiom-workflow-editor-actions button.is-primary, .axiom-workflow-list footer button:first-child { border-color: rgba(110, 231, 183, .2); background: rgba(110, 231, 183, .1); color: var(--green); }
+.axiom-workflow-editor-actions button:disabled, .axiom-workflow-list button:disabled { opacity: .35; cursor: not-allowed; }
+.axiom-workflow-editor > p { margin: 0; color: var(--dim); font-size: 8px; line-height: 1.6; }
+.axiom-workflow-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+.axiom-workflow-list > article { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .02); }
+.axiom-workflow-list > article > div { display: grid; gap: 4px; }
+.axiom-workflow-list strong { font-size: 11px; }
+.axiom-workflow-list span { color: var(--dim); font-size: 8px; }
+.axiom-workflow-list ol { display: grid; gap: 5px; margin: 0; padding-left: 22px; color: #8894a5; font-size: 9px; line-height: 1.45; }
+.axiom-workflow-list footer { display: flex; justify-content: flex-end; gap: 7px; }
+.axiom-workflow-list footer .is-danger { color: var(--red); }
+.axiom-workflow-run { display: grid; gap: 8px; }
+.axiom-workflow-run article { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; }
+.axiom-workflow-run article > i { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: rgba(127, 140, 160, .12); color: var(--dim); font: normal 8px Consolas, monospace; }
+.axiom-workflow-run article > div { display: grid; gap: 4px; }
+.axiom-workflow-run strong { color: #b9c3d0; font-size: 9px; line-height: 1.5; }
+.axiom-workflow-run span { color: var(--dim); font-size: 8px; }
+.axiom-workflow-run p { margin: 0; color: var(--red); font-size: 8px; }
+.axiom-workflow-run article.is-running { border-color: rgba(142, 168, 255, .28); }
+.axiom-workflow-run article.is-running > i { background: rgba(142, 168, 255, .16); color: var(--blue); }
+.axiom-workflow-run article.is-completed > i { background: rgba(110, 231, 183, .12); color: var(--green); }
+.axiom-workflow-run article.is-failed > i { background: rgba(251, 113, 133, .12); color: var(--red); }
+.axiom-skill-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 9px; }
+.axiom-skill-list article { display: grid; gap: 8px; min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .02); }
+.axiom-skill-list article > div { display: flex; justify-content: space-between; gap: 8px; }
+.axiom-skill-list strong { font: 9px Consolas, monospace; }
+.axiom-skill-list i { color: var(--blue); font: normal 7px Consolas, monospace; }
+.axiom-skill-list p { margin: 0; color: #798598; font-size: 9px; line-height: 1.55; }
+.axiom-skill-list code { overflow: hidden; color: var(--dim); font: 7px Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.axiom-tool-grid article { display: grid; gap: 8px; min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .02); }
+.axiom-tool-grid article > div { display: flex; justify-content: space-between; gap: 8px; }
+.axiom-tool-grid strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; }
+.axiom-tool-grid i { color: var(--dim); font-size: 7px; font-style: normal; }
+.axiom-tool-grid p { min-height: 30px; margin: 0; color: #707c8f; font-size: 9px; line-height: 1.55; }
+.axiom-tool-grid > article > span { width: fit-content; font-size: 8px; }
+.axiom-tool-grid .is-read { color: var(--green); }
+.axiom-tool-grid .is-write { color: var(--amber); }
+.axiom-tool-timeline { display: grid; gap: 8px; }
+.axiom-tool-timeline > article { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, .02); }
+.axiom-tool-status { width: 6px; height: 6px; margin-top: 3px; border-radius: 50%; background: var(--green); box-shadow: 0 0 7px rgba(110, 231, 183, .4); }
+.axiom-tool-timeline article.is-running .axiom-tool-status { background: var(--blue); animation: pulse 1.2s infinite; }
+.axiom-tool-timeline article.is-error .axiom-tool-status { background: var(--red); }
+.axiom-tool-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.axiom-tool-head strong { overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-tool-head em { color: var(--dim); font-size: 8px; font-style: normal; white-space: nowrap; }
+.axiom-tool-timeline p { margin: 4px 0 0; overflow: hidden; color: #687486; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-tool-timeline pre { max-height: 190px; margin-top: 8px; padding: 8px; border-radius: 6px; background: rgba(0, 0, 0, .22); color: #9da8b8; font-size: 8px; overflow: auto; }
+.axiom-empty { display: grid; place-items: center; gap: 8px; padding: 30px 12px; color: #505b6b; text-align: center; }
+.axiom-empty span { color: #657184; font-size: 20px; }
+.axiom-empty p { max-width: 190px; margin: 0; font-size: 9px; line-height: 1.6; }
+.axiom-workspace-path { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .02); }
+.axiom-workspace-path span { color: var(--green); }
+.axiom-workspace-path strong { overflow: hidden; font-family: Consolas, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-workspace-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-top: 12px; }
+.axiom-workspace-grid article { padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.axiom-workspace-grid span, .axiom-workspace-grid p { color: var(--dim); font-size: 9px; }
+.axiom-workspace-grid strong { display: block; margin: 5px 0; font-size: 10px; }
+.axiom-workspace-grid p { margin: 0; line-height: 1.55; }
+.axiom-session-card { display: grid; grid-template-columns: 10px minmax(0, 1fr) 130px; align-items: center; gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; }
+.axiom-session-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.axiom-session-card > div { display: grid; gap: 3px; min-width: 0; }
+.axiom-session-card strong { overflow: hidden; font-size: 8px; text-overflow: ellipsis; }
+.axiom-session-card small { color: var(--dim); font-size: 8px; }
+.axiom-section-copy { margin: 0 0 12px; color: #788496; font-size: 9px; line-height: 1.6; }
+.axiom-session-list { display: grid; gap: 8px; }
+.axiom-session-list article { display: grid; grid-template-columns: 10px minmax(0, 1fr) 82px auto; align-items: center; gap: 11px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .018); }
+.axiom-session-list article.is-active { border-color: rgba(110, 231, 183, .25); background: rgba(110, 231, 183, .035); }
+.axiom-session-main { display: grid; gap: 3px; min-width: 0; }
+.axiom-session-main strong { overflow: hidden; color: #d6dde7; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-session-main small { overflow: hidden; color: #727e90; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-session-main p { margin: 2px 0 0; overflow: hidden; color: #f1a8b5; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.axiom-session-state { display: grid; justify-items: end; gap: 3px; }
+.axiom-session-state em { color: var(--green); font-size: 8px; font-style: normal; }
+.axiom-session-state code { color: #596577; font-size: 7px; }
+.axiom-session-actions { display: flex; gap: 5px; }
+.axiom-session-actions button { padding: 6px 8px; border: 1px solid rgba(142, 168, 255, .24); border-radius: 7px; background: rgba(142, 168, 255, .08); color: #b8c7ff; font-size: 8px; cursor: pointer; }
+.axiom-session-actions button.is-delete { border-color: rgba(251, 113, 133, .2); background: rgba(251, 113, 133, .06); color: #f7a9b5; }
+.axiom-session-dot.is-interrupted, .axiom-session-dot.is-failed { background: var(--red); }
+.axiom-session-dot.is-running { background: var(--amber); animation: pulse 1.2s infinite; }
+.axiom-details { display: grid; gap: 8px; margin: 0; }
+.axiom-details > div { display: grid; gap: 4px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; }
+.axiom-details dt { color: var(--dim); font-size: 8px; text-transform: uppercase; }
+.axiom-details dd { margin: 0; overflow-wrap: anywhere; color: #bfc8d5; font-size: 8px; line-height: 1.5; }
+.axiom-policy { display: grid; gap: 9px; }
+.axiom-policy > div { display: flex; align-items: center; gap: 9px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; }
+.axiom-policy > div > span { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; font-size: 9px; }
+.axiom-policy p { margin: 0; color: #818da0; font-size: 9px; }
+.axiom-policy p strong { color: #cbd3df; }
+.axiom-permission-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-bottom: 9px; }
+.axiom-permission-modes button { display: grid; gap: 4px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .025); color: #97a2b2; text-align: left; cursor: pointer; }
+.axiom-permission-modes button strong { color: #cbd3df; font-size: 9px; }
+.axiom-permission-modes button span { font-size: 8px; line-height: 1.45; }
+.axiom-permission-modes button.is-active { border-color: rgba(246, 199, 106, .42); background: rgba(246, 199, 106, .09); }
+.axiom-permission-modes button.is-active.is-auto { border-color: rgba(142, 168, 255, .45); background: rgba(142, 168, 255, .1); }
+.axiom-permission-modes button.is-active.is-deny { border-color: rgba(251, 113, 133, .4); background: rgba(251, 113, 133, .08); }
+.axiom-permission-note { margin: 0 0 12px; color: #737f91; font-size: 8px; line-height: 1.55; }
+.axiom-provider-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgba(3, 5, 9, .78); backdrop-filter: blur(10px); }
+.axiom-provider-modal { width: min(720px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 24px; border: 1px solid rgba(142, 168, 255, .25); border-radius: 18px; background: linear-gradient(145deg, #151a23, #0d1118 72%); box-shadow: 0 30px 90px rgba(0, 0, 0, .55); }
+.axiom-provider-heading { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
+.axiom-provider-heading > div { display: grid; gap: 6px; }
+.axiom-provider-heading span { color: var(--blue); font-size: 8px; font-weight: 700; letter-spacing: .15em; }
+.axiom-provider-heading h2 { margin: 0; color: #f0f4fa; font-size: 20px; }
+.axiom-provider-heading p { max-width: 580px; margin: 0; color: #8995a6; font-size: 10px; line-height: 1.6; }
+.axiom-provider-heading > button { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255, 255, 255, .03); color: #8f9aaa; font-size: 18px; cursor: pointer; }
+.axiom-provider-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 17px; }
+.axiom-provider-presets button { display: grid; gap: 5px; min-height: 65px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .025); color: #8792a2; text-align: left; cursor: pointer; }
+.axiom-provider-presets button strong { color: #c8d0dc; font-size: 10px; }
+.axiom-provider-presets button em { width: fit-content; padding: 2px 5px; border-radius: 6px; background: rgba(142, 168, 255, .1); color: #9fb1ff; font-size: 7px; font-style: normal; font-weight: 700; letter-spacing: .08em; }
+.axiom-provider-presets button span { font-size: 8px; line-height: 1.35; }
+.axiom-provider-presets button.is-selected { border-color: rgba(142, 168, 255, .5); background: rgba(142, 168, 255, .1); box-shadow: inset 0 0 0 1px rgba(142, 168, 255, .08); }
+.axiom-provider-row { display: grid; grid-template-columns: 1fr 1.3fr; gap: 10px; margin-top: 10px; }
+.axiom-provider-field { display: grid; gap: 6px; }
+.axiom-provider-field > span { color: #96a2b2; font-size: 9px; font-weight: 600; }
+.axiom-provider-field input { width: 100%; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; outline: 0; background: rgba(3, 6, 11, .5); color: #e0e6ef; font-family: Consolas, "Microsoft YaHei", monospace; font-size: 10px; }
+.axiom-provider-field input:focus { border-color: rgba(142, 168, 255, .48); box-shadow: 0 0 0 3px rgba(142, 168, 255, .07); }
+.axiom-provider-error { margin-top: 10px; padding: 9px 11px; border: 1px solid rgba(251, 113, 133, .25); border-radius: 8px; background: rgba(251, 113, 133, .07); color: #ffb7c3; font-size: 9px; line-height: 1.5; }
+.axiom-provider-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--line); }
+.axiom-provider-footer p { max-width: 430px; margin: 0; color: #727f91; font-size: 8px; line-height: 1.55; }
+.axiom-provider-footer button { flex: none; padding: 10px 14px; border-radius: 9px; background: var(--blue); color: #08101d; font-size: 9px; font-weight: 700; cursor: pointer; }
+.axiom-provider-footer button:disabled { opacity: .38; cursor: not-allowed; }
+.is-green { color: var(--green); background: rgba(110, 231, 183, .08); }
+.is-amber { color: var(--amber); background: rgba(246, 199, 106, .08); }
+.is-red { color: var(--red); background: rgba(251, 113, 133, .08); }
+.axiom-server-list { display: grid; gap: 8px; }
+.axiom-server-list > div { display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 9px; border: 1px solid var(--line); border-radius: 8px; }
+.axiom-server-list > div > div { display: grid; gap: 2px; }
+.axiom-server-list strong { font-size: 9px; }
+.axiom-server-list small, .axiom-server-list em { color: var(--dim); font-size: 8px; font-style: normal; }
+.axiom-server-list p { color: var(--dim); font-size: 9px; line-height: 1.6; }
+.axiom-full-width { grid-column: 1 / -1; }
+.axiom-error-log { min-height: 100px; padding: 11px; border-radius: 8px; background: rgba(0, 0, 0, .24); color: #aab4c2; font-size: 8px; }
+
+@keyframes pulse { 50% { opacity: .35; transform: scale(.72); } }
+@media (max-width: 1120px) {
+  .axiom-workbench { grid-template-columns: minmax(0, 1fr) 240px; }
+  .axiom-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .axiom-provider-presets { grid-template-columns: repeat(2, 1fr); }
+  .axiom-provider-row { grid-template-columns: 1fr; }
+  .axiom-provider-footer { align-items: stretch; flex-direction: column; }
+}
+@media (max-width: 900px) {
+  .axiom-shell { grid-template-columns: 72px minmax(0, 1fr); }
+  .axiom-sidebar { padding-inline: 9px; }
+  .axiom-brand { justify-content: center; padding: 0; }
+  .axiom-brand > div:last-child, .axiom-project, .axiom-nav button > span:nth-child(2) { display: none; }
+  .axiom-new-task { font-size: 0; padding: 10px; }
+  .axiom-new-task span { font-size: 17px; }
+  .axiom-nav button { grid-template-columns: 1fr; place-items: center; padding: 10px 6px; }
+  .axiom-nav button i { position: absolute; top: 3px; right: 4px; }
+  .axiom-nav button::before { left: -9px; }
+  .axiom-workbench { grid-template-columns: minmax(0, 1fr); }
+  .axiom-rail { display: none; }
+}

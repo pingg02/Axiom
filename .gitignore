@@ -1,0 +1,76 @@
+# Build outputs and packaged artifacts
+axiom-build/
+reasonix-build/
+reasonix-build.tmp/
+reasonix-build-latest/
+output/
+build/
+dist/
+release/
+target/
+desktop/electron/frontend/
+desktop/electron/release/
+desktop/python-frontend/dist/
+reasonix-py/dist/
+reasonix-py/build/
+reasonix-java/target/
+reasonix-java/.mvn/apache-maven-*/
+*.exe
+*.msi
+*.dmg
+*.app
+*.blockmap
+
+# Dependency directories and package caches
+node_modules/
+.build-cache/
+.playwright-cli/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+reasonix-java/.mvn/repository/
+
+# Local runtime state
+.reasonix/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+*.tmp
+*.bak
+
+# Secrets and desktop-managed provider config
+.env
+.env.*
+**/secret.json
+**/provider.toml
+**/metadata.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local diagnostics and screenshots
+reasonix-electron-debug.png
+reasonix-workbench-connected.png
+reasonix-workbench-debug.png
+
+# Editors and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini

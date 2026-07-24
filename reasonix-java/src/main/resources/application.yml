@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: reasonix-security
+
+  ai:
+    openai:
+      api-key: ${DEEPSEEK_API_KEY}
+      base-url: https://api.deepseek.com/v1
+      chat:
+        options:
+          model: deepseek-chat
+          temperature: 0.0
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+
+grpc:
+  server:
+    address: 127.0.0.1
+    port: 9091
+
+server:
+  address: 127.0.0.1
+  port: 8081
+
+axiom:
+  sandbox:
+    # The current backend provides process-tree/resource guards, not an
+    # AppContainer filesystem/network boundary. Fail closed by default.
+    strict: ${AXIOM_SANDBOX_STRICT:true}

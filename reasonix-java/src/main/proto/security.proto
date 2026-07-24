@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package reasonix.security;
+
+option java_package = "com.reasonix.security.grpc";
+option java_multiple_files = true;
+
+// ── Permission Gate ──────────────────────────────────────────────────────
+
+message PermissionCheckRequest {
+  string tool_name = 1;
+  string args_json = 2;
+  bool read_only = 3;
+}
+
+message PermissionCheckResponse {
+  enum Decision {
+    ALLOW = 0;
+    ASK = 1;
+    DENY = 2;
+  }
+  Decision decision = 1;
+  string reason = 2;
+}
+
+// ── Guardian Review ──────────────────────────────────────────────────────
+
+message GuardianReviewRequest {
+  string tool_name = 1;
+  string args_json = 2;
+  string transcript_delta = 3;   // 增量转录
+  string session_id = 4;         // 熔断器/光标跟踪
+}
+
+message GuardianVerdict {
+  string risk_level = 1;   // low / medium / high / critical
+  string outcome = 2;      // allow / deny
+  string rationale = 3;
+  string user_authorization = 4;
+  bool breaker_tripped = 5;
+  string breaker_reason = 6;
+}
+
+// ── Secrets Redaction ────────────────────────────────────────────────────
+
+message RedactRequest {
+  string text = 1;
+  bool redact_tool_output = 2;  // 是否开关控制
+}
+
+message RedactResponse {
+  string redacted_text = 1;
+}
+
+// ── Sandbox Execute ──────────────────────────────────────────────────────
+
+message SandboxExecuteRequest {
+  string command = 1;
+  repeated string write_roots = 2;
+  repeated string forbid_read_roots = 3;
+  bool network = 4;
+  uint32 timeout_seconds = 5;
+}
+
+message SandboxExecuteResponse {
+  string stdout = 1;
+  string stderr = 2;
+  int32 exit_code = 3;
+}
+
+// ── Service Definition ───────────────────────────────────────────────────
+
+service SecurityService {
+  rpc CheckPermission(PermissionCheckRequest) returns (PermissionCheckResponse);
+  rpc ReviewTool(GuardianReviewRequest) returns (GuardianVerdict);
+  rpc RedactSecrets(RedactRequest) returns (RedactResponse);
+  rpc ExecuteSandboxed(SandboxExecuteRequest) returns (SandboxExecuteResponse);
+}
