@@ -8,7 +8,10 @@ const { spawn } = require('child_process')
 let mainWindow = null
 let tray = null
 let pythonProcess = null
+let javaProcess = null
 let bridgePort = 9092
+let securityPort = 9091
+let securityToken = ''
 let workspaceCwd = process.cwd()
 
 const PROVIDER_PRESETS = {
@@ -230,6 +233,42 @@ function findPythonServer() {
   }
 }
 
+function findJavaSecurityService() {
+  const bundledJavaw = path.join(
+    process.resourcesPath,
+    'java-runtime',
+    'bin',
+    process.platform === 'win32' ? 'javaw.exe' : 'java'
+  )
+  const bundledJava = fs.existsSync(bundledJavaw)
+    ? bundledJavaw
+    : path.join(process.resourcesPath, 'java-runtime', 'bin', 'java.exe')
+  const bundledJar = path.join(
+    process.resourcesPath,
+    'security',
+    'reasonix-security.jar'
+  )
+  const devJar = path.join(
+    __dirname,
+    '..',
+    '..',
+    'reasonix-java',
+    'target',
+    'reasonix-security.jar'
+  )
+  if (fs.existsSync(bundledJava) && fs.existsSync(bundledJar)) {
+    return { java: bundledJava, jar: bundledJar, bundled: true }
+  }
+  if (fs.existsSync(devJar)) {
+    return {
+      java: process.platform === 'win32' ? 'javaw.exe' : 'java',
+      jar: devJar,
+      bundled: false,
+    }
+  }
+  return null
+}
+
 function nearestReasonixWorkspace(startPath) {
   if (!startPath) return null
   let current = path.resolve(startPath)
@@ -295,11 +334,23 @@ function getFreePort(preferredPort) {
   })
 }
 
-function waitForBridge(port, timeoutMs = 10000) {
+function waitForBridge(port, timeoutMs = 45000) {
   const started = Date.now()
   return new Promise((resolve) => {
     const check = () => {
       const socket = net.createConnection({ host: '127.0.0.1', port })
+      let settled = false
+      const retry = () => {
+        if (settled) return
+        settled = true
+        socket.destroy()
+        if (Date.now() - started >= timeoutMs) {
+          logLine(`Backend bridge did not become ready within ${timeoutMs}ms`)
+          resolve(false)
+        } else {
+          setTimeout(check, 250)
+        }
+      }
       socket.once('connect', () => {
         const key = crypto.randomBytes(16).toString('base64')
         socket.write(
@@ -312,28 +363,113 @@ function waitForBridge(port, timeoutMs = 10000) {
         )
       })
       socket.once('data', (data) => {
+        if (settled) return
+        settled = true
         const ready = data.toString('ascii').startsWith('HTTP/1.1 101')
         socket.destroy()
         if (ready) {
           resolve(true)
-        } else if (Date.now() - started >= timeoutMs) {
-          resolve(false)
         } else {
           setTimeout(check, 250)
         }
       })
-      socket.once('error', () => {
-        socket.destroy()
-        if (Date.now() - started >= timeoutMs) {
-          logLine(`Backend bridge did not become ready within ${timeoutMs}ms`)
-          resolve(false)
-        } else {
-          setTimeout(check, 250)
-        }
-      })
+      socket.once('error', retry)
+      socket.setTimeout(1500, retry)
     }
     check()
   })
+}
+
+function waitForTcpPort(port, timeoutMs = 45000) {
+  const started = Date.now()
+  return new Promise((resolve) => {
+    const check = () => {
+      const socket = net.createConnection({ host: '127.0.0.1', port })
+      let settled = false
+      const retry = () => {
+        if (settled) return
+        settled = true
+        socket.destroy()
+        if (Date.now() - started >= timeoutMs) resolve(false)
+        else setTimeout(check, 250)
+      }
+      socket.once('connect', () => {
+        settled = true
+        socket.destroy()
+        resolve(true)
+      })
+      socket.once('error', retry)
+      socket.setTimeout(1000, retry)
+    }
+    check()
+  })
+}
+
+async function startJavaSecurityService() {
+  workspaceCwd = findWorkspaceCwd()
+  securityPort = await getFreePort(9091)
+  securityToken = crypto.randomBytes(32).toString('hex')
+  const service = findJavaSecurityService()
+  if (!service) {
+    logLine('Java security service is not built; Bash will fail closed')
+    return false
+  }
+
+  const providerEnvironment = loadProviderEnvironment()
+  const args = [
+    '-jar',
+    service.jar,
+    `--grpc.server.port=${securityPort}`,
+    '--spring.main.web-application-type=none',
+    '--spring.main.banner-mode=off',
+  ]
+  javaProcess = spawn(service.java, args, {
+    cwd: workspaceCwd,
+    env: {
+      ...process.env,
+      ...providerEnvironment,
+      AXIOM_SECURITY_TOKEN: securityToken,
+      AXIOM_SANDBOX_STRICT: 'true',
+      // Guardian is not on the shell hot path. Keep its optional Spring bean
+      // constructible without sending a non-DeepSeek provider key anywhere.
+      DEEPSEEK_API_KEY: providerEnvironment.DEEPSEEK_API_KEY || 'not-configured',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  })
+  const startedProcess = javaProcess
+  startedProcess.stdout.on('data', data => {
+    const message = data.toString().trim()
+    if (message) logLine(`[Java stdout] ${message}`)
+  })
+  startedProcess.stderr.on('data', data => {
+    const message = data.toString().trim()
+    if (message) logLine(`[Java stderr] ${message}`)
+  })
+  startedProcess.on('error', error => {
+    logLine(`Java security service failed to start: ${error.message}`)
+  })
+  startedProcess.on('close', code => {
+    logLine(`Java security service exited with code ${code}`)
+    if (javaProcess === startedProcess) javaProcess = null
+  })
+  logLine(`Starting Java security service on port ${securityPort}`)
+  const ready = await waitForTcpPort(securityPort)
+  if (!ready) {
+    logLine('Java security service did not become ready; Bash will fail closed')
+    if (javaProcess === startedProcess) javaProcess = null
+    startedProcess.kill()
+  }
+  return ready
+}
+
+async function stopJavaSecurityService() {
+  const processToStop = javaProcess
+  if (!processToStop) return
+  javaProcess = null
+  const closed = new Promise(resolve => processToStop.once('close', resolve))
+  processToStop.kill()
+  await Promise.race([closed, new Promise(resolve => setTimeout(resolve, 5000))])
 }
 
 async function startPythonServer() {
@@ -349,6 +485,9 @@ async function startPythonServer() {
       REASONIX_WORKSPACE: workspaceCwd,
       REASONIX_PARENT_PID: String(process.pid),
       REASONIX_DESKTOP_CONFIG: providerPaths().config,
+      AXIOM_SECURITY_REQUIRED: '1',
+      AXIOM_SECURITY_PORT: String(securityPort),
+      AXIOM_SECURITY_TOKEN: securityToken,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   }
@@ -411,6 +550,8 @@ function loadFrontend() {
 
 async function restartPythonServer() {
   await stopPythonServer()
+  await stopJavaSecurityService()
+  await startJavaSecurityService()
   await startPythonServer()
   await waitForBridge(bridgePort)
 }
@@ -480,6 +621,7 @@ app.whenReady().then(async () => {
     setTimeout(loadFrontend, 150)
     return status
   })
+  await startJavaSecurityService()
   await startPythonServer()
   await waitForBridge(bridgePort)
   createWindow()
@@ -498,4 +640,6 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   if (pythonProcess) pythonProcess.kill()
   pythonProcess = null
+  if (javaProcess) javaProcess.kill()
+  javaProcess = null
 })

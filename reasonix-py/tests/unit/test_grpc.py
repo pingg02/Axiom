@@ -16,8 +16,9 @@ def test_client_default_params():
 
 def test_client_custom_params():
     """自定义参数正确。"""
-    client = SecurityClient(host="10.0.0.1", port=8080)
+    client = SecurityClient(host="10.0.0.1", port=8080, token="launch-token")
     assert client._target == "10.0.0.1:8080"
+    assert client._metadata == (("x-axiom-security-token", "launch-token"),)
 
 
 def test_client_connect_fails_gracefully():

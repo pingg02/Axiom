@@ -16,6 +16,25 @@ def test_electron_builder_points_at_pyinstaller_output():
     assert resource["to"] == "reasonix-server.exe"
 
 
+def test_electron_builder_bundles_java_security_service_and_runtime():
+    package = json.loads((ELECTRON_DIR / "package.json").read_text(encoding="utf-8"))
+    resources = package["build"]["extraResources"]
+
+    assert {
+        "from": "security/reasonix-security.jar",
+        "to": "security/reasonix-security.jar",
+    } in resources
+    assert {"from": "java-runtime", "to": "java-runtime"} in resources
+
+    main_js = (ELECTRON_DIR / "main.js").read_text(encoding="utf-8")
+    assert "startJavaSecurityService" in main_js
+    assert "await startJavaSecurityService()\n  await startPythonServer()" in main_js
+    assert "await stopJavaSecurityService()" in main_js
+    assert "AXIOM_SECURITY_REQUIRED" in main_js
+    assert "AXIOM_SECURITY_TOKEN" in main_js
+    assert "crypto.randomBytes(32)" in main_js
+
+
 def test_electron_main_dev_build_path_points_at_real_pyinstaller_dist():
     """main.js should look two levels up from desktop/electron in dev mode."""
     main_js = (ELECTRON_DIR / "main.js").read_text(encoding="utf-8")

@@ -19,6 +19,7 @@ import reasonix.provider.openai  # noqa: F401
 from reasonix.config import Config
 from reasonix.control.controller import Controller, ControllerOptions
 from reasonix.event import Sink
+from reasonix.grpc import SecurityClient
 from reasonix.history import SessionStore
 from reasonix.memory import MemoryDoc, MemorySet
 from reasonix.permission.permission import Gate, Policy
@@ -175,6 +176,9 @@ def _assemble_controller(
     resources: list[object] | None = None,
     mcp_statuses: list[object] | None = None,
     history_store: SessionStore | None = None,
+    security_client: SecurityClient | None = None,
+    security_required: bool = False,
+    security_error: str = "",
 ) -> Controller:
     provider = _build_provider(cfg)
     skills = discover_skills(Path.cwd())
@@ -199,6 +203,9 @@ def _assemble_controller(
         provider_model=provider.model_name,
         history_store=history_store,
         workspace=str(Path.cwd()),
+        security_client=security_client,
+        security_required=security_required,
+        security_error=security_error,
     )
 
     return Controller(opts)
@@ -245,6 +252,27 @@ async def build_controller_async(
     registry = _default_tools()
     resources: list[object] = []
     statuses: list[object] = []
+    security_client: SecurityClient | None = None
+    security_error = ""
+    security_required = os.environ.get("AXIOM_SECURITY_REQUIRED", "").lower() in {
+        "1", "true", "yes"
+    }
+    security_port = os.environ.get("AXIOM_SECURITY_PORT", "").strip()
+    security_token = os.environ.get("AXIOM_SECURITY_TOKEN", "").strip()
+    if security_required:
+        if not security_port.isdigit() or not security_token:
+            security_error = "Java security service startup information is missing"
+        else:
+            security_client = SecurityClient(
+                host="127.0.0.1",
+                port=int(security_port),
+                token=security_token,
+            )
+            if await security_client.connect():
+                resources.append(security_client)
+            else:
+                security_error = "Java security service is unavailable"
+                security_client = None
     if cfg.mcp_servers:
         from reasonix.tool.mcp_loader import register_mcp_tools
 
@@ -259,4 +287,7 @@ async def build_controller_async(
         resources=resources,
         mcp_statuses=statuses,
         history_store=history_store,
+        security_client=security_client,
+        security_required=security_required,
+        security_error=security_error,
     )

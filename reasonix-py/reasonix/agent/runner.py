@@ -6,11 +6,13 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from reasonix.agent.compose import ComposeInput, compose_system_prompt
 from reasonix.diff import Change
 from reasonix.event import AskQuestion, Event, Kind, Sink, ToolCallInfo, UsageInfo
+from reasonix.grpc import SecurityClient
 from reasonix.memory import MemorySet
 from reasonix.permission.permission import Gate
 from reasonix.provider import Message, Provider, Role, StreamEvent, ToolCall
@@ -36,6 +38,9 @@ class RunnerOptions:
     permission_gate: Gate | None = None
     history: list[Message] = field(default_factory=list)
     change_callback: ChangeCallback | None = None
+    security_client: SecurityClient | None = None
+    security_required: bool = False
+    workspace: str = ""
 
 
 @dataclass
@@ -263,11 +268,17 @@ class Runner:
         )
         sink.emit(Event(kind=Kind.TOOL_DISPATCH, tool=info))
         try:
-            output = await tool.execute(tool_call.args_json)
+            if tool_call.name == "bash" and self.opts.security_required:
+                output = await self._execute_secure_bash(tool_call)
+            else:
+                output = await tool.execute(tool_call.args_json)
             if len(output) > 32 * 1024:
                 output = output[: 32 * 1024]
                 info.truncated = True
-            info.output = output
+            if output.startswith("Error:"):
+                info.error = output
+            else:
+                info.output = output
             sink.emit(Event(kind=Kind.TOOL_RESULT, tool=info))
             if (
                 change is not None
@@ -280,6 +291,70 @@ class Runner:
             info.error = str(exc)
             sink.emit(Event(kind=Kind.TOOL_RESULT, tool=info))
             return f"Error: {exc}"
+
+    async def _execute_secure_bash(self, tool_call: ToolCall) -> str:
+        """Route desktop shell execution through the authenticated Java service."""
+        client = self.opts.security_client
+        if client is None:
+            return (
+                "Error: Java security service is unavailable; "
+                "the command was not executed."
+            )
+
+        try:
+            args = json.loads(tool_call.args_json)
+        except json.JSONDecodeError as exc:
+            return f"Error: invalid bash arguments: {exc}"
+        if not isinstance(args, dict):
+            return "Error: bash arguments must be a JSON object"
+
+        command = str(args.get("command", "")).strip()
+        if not command:
+            return "Error: bash command must not be empty"
+
+        raw_workdir = str(args.get("workdir", "")).strip()
+        workspace = Path(self.opts.workspace or Path.cwd()).resolve()
+        if raw_workdir:
+            requested = Path(raw_workdir)
+            if not requested.is_absolute():
+                requested = workspace / requested
+            try:
+                requested = requested.resolve()
+            except OSError:
+                return "Error: invalid bash working directory"
+            if requested != workspace:
+                return (
+                    "Error: secure desktop execution currently only supports "
+                    f"the workspace root: {workspace}"
+                )
+
+        try:
+            timeout = max(1, min(int(args.get("timeout_seconds", 30)), 300))
+            java_decision = await client.check_permission(
+                "bash", tool_call.args_json, read_only=False
+            )
+            if java_decision == "deny":
+                return "Error: command denied by the Java security policy"
+            result = await client.execute_sandboxed(
+                command,
+                # The current backend does not claim OS-level network isolation.
+                # Network use is still covered by the interactive Bash approval.
+                network=True,
+                timeout_seconds=timeout,
+            )
+        except Exception as exc:
+            return (
+                "Error: Java security service failed; command was not executed "
+                f"({type(exc).__name__})."
+            )
+
+        stdout = str(result.get("stdout", ""))
+        stderr = str(result.get("stderr", ""))
+        exit_code = int(result.get("exit_code", -1))
+        parts = [part.rstrip() for part in (stdout, stderr) if part]
+        if exit_code != 0:
+            parts.append(f"Process exited with code {exit_code}")
+        return "\n".join(parts) if parts else f"Process exited with code {exit_code}"
 
     async def _execute_ask_tool(
         self,

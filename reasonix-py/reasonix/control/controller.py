@@ -13,6 +13,7 @@ from typing import Any
 from reasonix.agent.runner import Runner, RunnerOptions
 from reasonix.diff import Change
 from reasonix.event import ApprovalRequest, AskQuestion, Event, Kind, Sink
+from reasonix.grpc import SecurityClient
 from reasonix.history import ChangeRecord, SessionRecord, SessionStore, WorkflowRecord
 from reasonix.memory import MemorySet
 from reasonix.permission.permission import ApprovalScope, Decision, Gate
@@ -56,6 +57,9 @@ class ControllerOptions:
     configuration_error: str = ""
     history_store: SessionStore | None = None
     workspace: str = ""
+    security_client: SecurityClient | None = None
+    security_required: bool = False
+    security_error: str = ""
 
 
 class Controller:
@@ -131,6 +135,9 @@ class Controller:
                 permission_gate=self.opts.permission_gate,
                 history=list(self._history),
                 change_callback=self._record_change,
+                security_client=self.opts.security_client,
+                security_required=self.opts.security_required,
+                workspace=self.opts.workspace,
             )
         )
         self._turn_task = asyncio.create_task(self._run_turn(runner, text))

@@ -9,6 +9,8 @@ dist/
 release/
 target/
 desktop/electron/frontend/
+desktop/electron/java-runtime/
+desktop/electron/security/
 desktop/electron/release/
 desktop/python-frontend/dist/
 reasonix-py/dist/

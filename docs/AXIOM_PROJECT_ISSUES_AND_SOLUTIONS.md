@@ -1076,3 +1076,32 @@ GitHub 语言统计显示 Go 占比最高，但当前 Axiom 的实际运行链�
 - `desktop/` 根目录只剩 `electron`、`python-frontend`、`.gitignore`、`installer.nsi`、`launcher.bat`。
 - 仓库语言体积重新排序后 Python 位于第一，Go 不再计入。
 - `python -m pytest reasonix-py\tests\unit\test_electron_packaging.py -q`：11 passed。
+
+## 31. Java 安全服务接入桌面实际执行链路
+
+### 原问题
+
+Java 安全模块虽然能够独立运行，但 Electron 首次启动没有拉起它，Python 的桌面 `bash` 工具也仍可能走本地执行，因此“Java 沙箱”没有真正处于 Axiom.exe 的工具执行路径中。Java gRPC 端口也缺少每次启动独立的调用凭据，不能可靠区分本应用与其他本机进程。
+
+### 修复
+
+- Electron 首次启动时先启动 Java 安全服务，再启动 Python 桌面桥；保存供应商配置重启时先关闭旧 Java/Python 进程，避免后台进程残留。
+- 安装包同时携带 `reasonix-security.jar` 和由 `jlink` 生成的私有 Java 运行时，终端用户无需另装 JDK/JRE。
+- Electron 每次启动生成 256 位随机令牌，通过进程环境交给 Java 与 Python；所有安全 gRPC 请求都携带 `x-axiom-security-token`，Java 使用常量时间比较并拒绝缺失或错误令牌。
+- 桌面端 `bash` 统一经过“前端 Ask/Allow/Deny → Python 审批 → Java Permission Gate → Java guarded process”链路。Java 不可用时命令 fail closed，但工具结果会返回会话，后续对话仍可继续。
+- 修复 gRPC 依赖版本不一致导致 fat JAR 启动时报 `NoClassDefFoundError` 的问题，统一通过 gRPC BOM 管理版本。
+- 后端冷启动等待由 10 秒提高到 45 秒，并为 WebSocket 探测增加 socket timeout，兼容 PyInstaller one-file 首次解压的启动延迟。
+
+### 安全边界
+
+当前 Windows 后端提供命令策略、敏感环境变量移除、超时、输出上限以及 Job Object/进程树守护；它不是 AppContainer 级的文件系统或网络隔离。严格模式会拒绝要求当前后端无法保证的隔离策略，界面使用“安全执行”而不是夸大为“完全沙箱”。
+
+### 验证
+
+- Python 定向测试：23 passed。
+- Python 全量测试：106 passed。
+- React 前端测试：11 passed。
+- Java Maven 测试：68 passed。
+- 使用打包目录内私有 `javaw.exe`、安全 JAR 和正确令牌执行 `echo packaged-java-ok` 成功。
+- 使用错误令牌调用时返回 gRPC `UNAUTHENTICATED`。
+- 完整构建生成 `reasonix-build\desktop-electron\Axiom Setup 0.2.1.exe`，并确认安装资源中同时存在 Python 后端、Java 安全 JAR 和私有 Java 运行时。

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "reasonix"
-version = "0.2.0"
+version = "0.2.1"
 description = "Axiom AI coding workbench (Reasonix-compatible Python engine)"
 readme = "README.md"
 license = {text = "MIT"}

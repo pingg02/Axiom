@@ -93,15 +93,17 @@ Axiom is designed around explicit approval for sensitive operations:
 - `Allow`: approve selected tool calls or trusted classes of actions.
 - `Deny`: reject unsafe or unwanted actions.
 
-The Java security service exists to keep permission checks, audit records, and sandbox-related decisions separated from the chat UI and Python runtime.
+The installed desktop application starts a private Java runtime before the Python agent. Every desktop `bash` call is sent to that Java service over loopback gRPC with a random per-launch token; if the service is unavailable, shell execution fails closed while the conversation remains usable. The installer bundles the Java runtime and security JAR, so users do not need to install Java separately.
+
+The current Windows backend provides command policy checks, secret-stripped environments, timeouts, output limits, and Job Object/process-tree guards. It does **not** claim AppContainer-level filesystem or network isolation. Requests that require guarantees the active backend cannot provide are rejected in strict mode.
 
 ## Release workflow
 
 After a stable build, create a Git tag and attach the installer to a GitHub Release:
 
 ```powershell
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 Then upload the generated installer from the local build output directory in the GitHub Releases page.

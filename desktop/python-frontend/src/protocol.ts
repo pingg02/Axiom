@@ -56,6 +56,12 @@ export interface DesktopStatus {
     model: string
     error: string
   }
+  security?: {
+    required: boolean
+    connected: boolean
+    backend: string
+    error: string
+  }
   tool_count: number
   tools: ToolCatalogItem[]
   mcp_servers?: McpServerStatus[]

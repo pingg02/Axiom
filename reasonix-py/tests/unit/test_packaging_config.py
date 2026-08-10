@@ -25,7 +25,8 @@ def test_pyproject_declares_imported_provider_dependencies():
 def test_build_script_installs_project_dependencies_before_pyinstaller():
     build_script = (REPO_ROOT / "build_all.ps1").read_text(encoding="utf-8")
 
-    assert "python -m pip install -e . pyinstaller" in build_script
+    assert "& $pythonExe @pythonPrefix -m pip install -e . pyinstaller" in build_script
+    assert '$pythonPrefix = @("-3")' in build_script
     assert 'reasonix.exe") --version' in build_script
     assert "start_reasonix_desktop.cmd" in build_script
     assert "desktop-electron" in build_script

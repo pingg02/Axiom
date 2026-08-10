@@ -1,6 +1,6 @@
 {
   "name": "axiom-desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Axiom desktop AI coding workbench",
   "main": "main.js",
   "scripts": {
@@ -26,6 +26,14 @@
       {
         "from": "../../reasonix-py/dist/reasonix.exe",
         "to": "reasonix-server.exe"
+      },
+      {
+        "from": "security/reasonix-security.jar",
+        "to": "security/reasonix-security.jar"
+      },
+      {
+        "from": "java-runtime",
+        "to": "java-runtime"
       }
     ],
     "win": {

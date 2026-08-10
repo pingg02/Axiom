@@ -1,6 +1,8 @@
 spring:
   application:
     name: reasonix-security
+  main:
+    web-application-type: none
 
   ai:
     openai:
@@ -35,6 +37,10 @@ server:
   port: 8081
 
 axiom:
+  security:
+    # Electron generates a new value for every desktop launch. An empty token
+    # intentionally makes every gRPC call fail authentication.
+    token: ${AXIOM_SECURITY_TOKEN:}
   sandbox:
     # The current backend provides process-tree/resource guards, not an
     # AppContainer filesystem/network boundary. Fail closed by default.

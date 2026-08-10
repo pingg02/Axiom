@@ -420,6 +420,24 @@ class BridgeClient:
                         "model": self.controller.opts.provider_model,
                         "error": self.controller.opts.configuration_error,
                     },
+                    "security": {
+                        "required": getattr(
+                            self.controller.opts, "security_required", False
+                        ),
+                        "connected": getattr(
+                            self.controller.opts, "security_client", None
+                        ) is not None,
+                        "backend": (
+                            "java-job-object"
+                            if getattr(
+                                self.controller.opts, "security_client", None
+                            ) is not None
+                            else "python-direct"
+                        ),
+                        "error": getattr(
+                            self.controller.opts, "security_error", ""
+                        ),
+                    },
                     "tool_count": len(tools),
                     "tools": tools,
                     "mcp_servers": mcp_servers,

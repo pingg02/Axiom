@@ -20,7 +20,7 @@ from reasonix.boot import ConfigError
 from reasonix.boot import build_controller_async as build_controller
 from reasonix.event import Event, Kind, Sink
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 
 class _PrintSink(Sink):

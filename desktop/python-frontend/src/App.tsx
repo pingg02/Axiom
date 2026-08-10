@@ -693,7 +693,16 @@ function App() {
                   }
                 />
                 <Capability label="MCP" value={`${status?.mcp_servers?.length || 0} 服务`} />
-                <Capability label="沙箱" value="策略保护" />
+                <Capability
+                  label="安全执行"
+                  value={
+                    status?.security?.connected
+                      ? 'Java 受控进程'
+                      : status?.security?.required
+                        ? '服务不可用'
+                        : '开发模式'
+                  }
+                />
               </div>
             </section>
           </aside>
@@ -1046,7 +1055,7 @@ function DiagnosticsModule(props: { error: string; status: DesktopStatus | null;
     <div className="axiom-module axiom-two-columns">
       <section className="axiom-section">
         <div className="axiom-section-heading"><div><span>TRANSPORT</span><h2>连接诊断</h2></div></div>
-        <dl className="axiom-details"><div><dt>目标</dt><dd>{props.wsUrl}</dd></div><div><dt>状态</dt><dd>{props.error || '连接正常'}</dd></div><div><dt>工具数</dt><dd>{props.status?.tool_count || 0}</dd></div></dl>
+        <dl className="axiom-details"><div><dt>目标</dt><dd>{props.wsUrl}</dd></div><div><dt>状态</dt><dd>{props.error || '连接正常'}</dd></div><div><dt>工具数</dt><dd>{props.status?.tool_count || 0}</dd></div><div><dt>Java 安全服务</dt><dd>{props.status?.security?.connected ? '已连接 · 受控进程执行' : props.status?.security?.error || '开发模式未启用'}</dd></div></dl>
       </section>
       <section className="axiom-section">
         <div className="axiom-section-heading"><div><span>MCP SERVERS</span><h2>MCP 状态</h2></div></div>

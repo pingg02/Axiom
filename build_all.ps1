@@ -29,6 +29,27 @@ $env:ELECTRON_BUILDER_CACHE = Join-Path $BUILD_CACHE_DIR "electron-builder"
 $env:TEMP = Join-Path $BUILD_CACHE_DIR "temp"
 $env:TMP = $env:TEMP
 
+# Prefer the Windows Python launcher so an unrelated activated virtual
+# environment cannot silently supply the interpreter for the release build.
+$pythonLauncher = Get-Command "py" -ErrorAction SilentlyContinue
+if ($pythonLauncher) {
+    $pythonExe = $pythonLauncher.Source
+    $pythonPrefix = @("-3")
+} else {
+    $pythonCommand = Get-Command "python" -ErrorAction SilentlyContinue
+    if (-not $pythonCommand) {
+        Write-Host "[ERROR] Python 3.12 or later was not found"
+        exit 1
+    }
+    $pythonExe = $pythonCommand.Source
+    $pythonPrefix = @()
+}
+& $pythonExe @pythonPrefix -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Axiom requires Python 3.12 or later"
+    exit 1
+}
+
 Write-Host "========================================"
 Write-Host "Axiom Build Script"
 Write-Host "Output: $FINAL_BUILD_DIR"
@@ -43,9 +64,9 @@ New-Item -ItemType Directory -Path $BUILD_DIR -Force | Out-Null
 # Step 1: Build Python exe
 Write-Host "[1/6] Building Python exe..."
 Set-Location (Join-Path $SRC "reasonix-py")
-python -m pip install -e . pyinstaller
+& $pythonExe @pythonPrefix -m pip install -e . pyinstaller
 if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] pip install failed"; exit 1 }
-python -m PyInstaller reasonix_min.spec
+& $pythonExe @pythonPrefix -m PyInstaller reasonix_min.spec
 if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] PyInstaller failed"; exit 1 }
 if (-not (Test-Path "dist\reasonix.exe")) { Write-Host "[ERROR] PyInstaller did not produce dist\reasonix.exe"; exit 1 }
 Copy-Item "dist\reasonix.exe" -Destination $BUILD_DIR -Force
@@ -63,6 +84,40 @@ $jarDir = Join-Path $BUILD_DIR "reasonix-java" | Join-Path -Child "target"
 New-Item -ItemType Directory -Path $jarDir -Force | Out-Null
 if (-not (Test-Path "target\reasonix-security.jar")) { Write-Host "[ERROR] Maven did not produce target\reasonix-security.jar"; exit 1 }
 Copy-Item "target\reasonix-security.jar" -Destination $jarDir -Force
+
+# Stage the authenticated Java service and a private runtime for electron-builder.
+# Installed users must not need a machine-wide Java installation.
+$electronSecurityDir = Join-Path $SRC "desktop\electron\security"
+$electronRuntimeDir = Join-Path $SRC "desktop\electron\java-runtime"
+Assert-WorkspacePath $electronSecurityDir
+Assert-WorkspacePath $electronRuntimeDir
+if (Test-Path $electronSecurityDir) {
+    Remove-Item -LiteralPath $electronSecurityDir -Recurse -Force
+}
+New-Item -ItemType Directory -Path $electronSecurityDir -Force | Out-Null
+Copy-Item "target\reasonix-security.jar" -Destination $electronSecurityDir -Force
+
+$jlink = Get-Command "jlink" -ErrorAction SilentlyContinue
+if (-not $jlink) {
+    Write-Host "[ERROR] jlink was not found. Install JDK 21 or later."
+    exit 1
+}
+if (Test-Path $electronRuntimeDir) {
+    Remove-Item -LiteralPath $electronRuntimeDir -Recurse -Force
+}
+$javaModules = @(
+    "java.base", "java.compiler", "java.desktop", "java.instrument",
+    "java.logging", "java.management", "java.naming", "java.net.http",
+    "java.prefs", "java.rmi", "java.scripting", "java.security.jgss",
+    "java.security.sasl", "java.sql", "java.transaction.xa", "java.xml",
+    "jdk.crypto.ec", "jdk.httpserver", "jdk.management", "jdk.unsupported"
+) -join ","
+& $jlink.Source --add-modules $javaModules --output $electronRuntimeDir `
+    --strip-debug --no-header-files --no-man-pages --compress=2
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $electronRuntimeDir "bin\java.exe"))) {
+    Write-Host "[ERROR] jlink did not produce the bundled Java runtime"
+    exit 1
+}
 Write-Host "[2/6] Java fatjar done"
 
 # Step 3: Build frontend

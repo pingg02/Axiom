@@ -30,8 +30,14 @@ class SecurityClient:
     连接失败时 logger.warning 并抛出异常供调用方决定回退策略。
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 9091):
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 9091,
+        token: str = "",
+    ) -> None:
         self._target = f"{host}:{port}"
+        self._metadata = (("x-axiom-security-token", token),)
         self._channel: grpc.aio.Channel | None = None
         self._stub: security_pb2_grpc.SecurityServiceStub | None = None
 
@@ -49,6 +55,8 @@ class SecurityClient:
         except Exception as e:
             logger.warning("Failed to connect to Java security service at %s: %s",
                            self._target, e)
+            if self._channel:
+                await self._channel.close()
             self._channel = None
             self._stub = None
             return False
@@ -64,7 +72,9 @@ class SecurityClient:
                 args_json=args_json,
                 read_only=read_only,
             )
-            resp = await self._stub.CheckPermission(req, timeout=5)
+            resp = await self._stub.CheckPermission(
+                req, timeout=5, metadata=self._metadata
+            )
             return security_pb2.PermissionCheckResponse.Decision.Name(
                 resp.decision
             ).lower()
@@ -84,7 +94,9 @@ class SecurityClient:
                 transcript_delta=transcript_delta,
                 session_id=session_id,
             )
-            resp = await self._stub.ReviewTool(req, timeout=30)
+            resp = await self._stub.ReviewTool(
+                req, timeout=30, metadata=self._metadata
+            )
             return {
                 "risk_level": resp.risk_level,
                 "outcome": resp.outcome,
@@ -105,7 +117,9 @@ class SecurityClient:
                 text=text,
                 redact_tool_output=redact_tool_output,
             )
-            resp = await self._stub.RedactSecrets(req, timeout=5)
+            resp = await self._stub.RedactSecrets(
+                req, timeout=5, metadata=self._metadata
+            )
             return cast(str, resp.redacted_text)
         except Exception as e:
             logger.error("redact_secrets failed: %s", e)
@@ -125,7 +139,11 @@ class SecurityClient:
                 network=network,
                 timeout_seconds=timeout_seconds,
             )
-            resp = await self._stub.ExecuteSandboxed(req, timeout=timeout_seconds + 10)
+            resp = await self._stub.ExecuteSandboxed(
+                req,
+                timeout=timeout_seconds + 10,
+                metadata=self._metadata,
+            )
             return {
                 "stdout": resp.stdout,
                 "stderr": resp.stderr,

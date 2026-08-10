@@ -7,6 +7,7 @@ from reasonix.memory import MemorySet
 from reasonix.permission.permission import Decision, Gate, Policy, Rule
 from reasonix.provider import Message, Provider, Role, StreamEvent, ToolCall, Usage
 from reasonix.tool.base import Tool
+from reasonix.tool.builtin.bash import BashTool
 from reasonix.tool.registry import Registry
 
 
@@ -74,6 +75,20 @@ class MultiToolCallingProvider(ToolCallingProvider):
                 ],
             )
         )
+
+
+class FakeSecurityClient:
+    def __init__(self) -> None:
+        self.commands: list[str] = []
+
+    async def check_permission(self, tool_name, args_json, read_only=False):
+        return "ask"
+
+    async def execute_sandboxed(
+        self, command, write_roots=None, network=False, timeout_seconds=30
+    ):
+        self.commands.append(command)
+        return {"stdout": "from-java", "stderr": "", "exit_code": 0}
 
 
 def test_runner_passes_tool_read_only_flag_to_permission_gate():
@@ -233,3 +248,54 @@ def test_controller_permission_posture_is_scoped_to_one_session():
 
     assert controller.permission_mode == "ask"
     assert policy.session_allow == []
+
+
+def test_required_desktop_bash_fails_closed_without_java_service():
+    registry = Registry()
+    registry.add(BashTool())
+    sink = BufferedSink()
+    runner = Runner(
+        RunnerOptions(
+            sink=sink,
+            registry=registry.snapshot(),
+            provider=ToolCallingProvider(
+                tool_name="bash", args_json='{"command":"echo unsafe-fallback"}'
+            ),
+            max_steps=1,
+            permission_gate=Gate(Policy(mode=Decision.ALLOW)),
+            security_required=True,
+        )
+    )
+
+    asyncio.run(runner.run("run it"))
+
+    result = next(event for event in sink.events if event.kind == Kind.TOOL_RESULT)
+    assert "Java security service is unavailable" in result.tool.error
+    assert "unsafe-fallback" not in (result.tool.output or "")
+
+
+def test_required_desktop_bash_routes_through_java_service(tmp_path):
+    registry = Registry()
+    registry.add(BashTool())
+    sink = BufferedSink()
+    security = FakeSecurityClient()
+    runner = Runner(
+        RunnerOptions(
+            sink=sink,
+            registry=registry.snapshot(),
+            provider=ToolCallingProvider(
+                tool_name="bash", args_json='{"command":"echo guarded"}'
+            ),
+            max_steps=1,
+            permission_gate=Gate(Policy(mode=Decision.ALLOW)),
+            security_required=True,
+            security_client=security,  # type: ignore[arg-type]
+            workspace=str(tmp_path),
+        )
+    )
+
+    asyncio.run(runner.run("run it"))
+
+    result = next(event for event in sink.events if event.kind == Kind.TOOL_RESULT)
+    assert result.tool.output == "from-java"
+    assert security.commands == ["echo guarded"]

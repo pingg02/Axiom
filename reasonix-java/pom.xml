@@ -24,6 +24,20 @@
         <protobuf.version>4.29.3</protobuf.version>
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- Keep every transitive gRPC artifact on one version. Mixing the
+                 starter's 1.63 API with the 1.70 core breaks the fat JAR at runtime. -->
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-bom</artifactId>
+                <version>${grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!-- Spring Boot core -->
         <dependency>
