@@ -16,11 +16,12 @@ import asyncio
 import platform
 import sys
 
+from reasonix import __version__
 from reasonix.boot import ConfigError
 from reasonix.boot import build_controller_async as build_controller
 from reasonix.event import Event, Kind, Sink
 
-VERSION = "0.2.1"
+VERSION = __version__
 
 
 class _PrintSink(Sink):

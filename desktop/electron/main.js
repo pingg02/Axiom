@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, Tray, Menu, ipcMain, safeStorage } = require('electron')
+const { app, BrowserWindow, Tray, Menu, ipcMain, safeStorage } = require('electron')
 const crypto = require('crypto')
 const fs = require('fs')
 const net = require('net')
@@ -621,6 +621,9 @@ app.whenReady().then(async () => {
     setTimeout(loadFrontend, 150)
     return status
   })
+  // The renderer needs the per-launch token to authenticate on the desktop
+  // WebSocket bridge. The token is generated before the window is created.
+  ipcMain.handle('bridge:token', () => securityToken)
   await startJavaSecurityService()
   await startPythonServer()
   await waitForBridge(bridgePort)

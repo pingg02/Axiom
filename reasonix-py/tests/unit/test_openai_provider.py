@@ -56,6 +56,9 @@ def test_generate_stream_merges_incremental_tool_call_chunks_by_index():
         def bind_tools(self, tools):
             return self
 
+        def bind(self, **kwargs):
+            return self
+
         async def astream(self, messages):
             yield AIMessageChunk(
                 content="",
@@ -96,3 +99,71 @@ def test_generate_stream_merges_incremental_tool_call_chunks_by_index():
     assert final_message.tool_calls == [
         ToolCall(id="call-1", name="glob", args_json='{"pattern":"*.py"}')
     ]
+
+
+def test_generate_stream_forwards_temperature_and_max_tokens():
+    """Per-call temperature/max_tokens must reach the LLM binding (config used to be dropped)."""
+
+    class FakeStreamingLLM:
+        def __init__(self):
+            self.bound_kwargs: dict = {}
+
+        def bind_tools(self, tools):
+            return self
+
+        def bind(self, **kwargs):
+            self.bound_kwargs = dict(kwargs)
+            return self
+
+        async def astream(self, messages):
+            yield AIMessageChunk(content="hi")
+
+    llm = FakeStreamingLLM()
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider._model_name = "fake"
+    provider._llm = llm
+
+    async def collect():
+        async for _event in provider.generate_stream(
+            messages=[Message(role=Role.USER, content="hello")],
+            temperature=0.7,
+            max_tokens=123,
+        ):
+            pass
+
+    asyncio.run(collect())
+
+    assert llm.bound_kwargs == {"temperature": 0.7, "max_tokens": 123}
+
+
+def test_generate_forwards_temperature_and_max_tokens():
+    """Non-streaming generate must also forward per-call overrides."""
+
+    class FakeLLM:
+        def __init__(self):
+            self.bound_kwargs: dict = {}
+
+        def bind_tools(self, tools):
+            return self
+
+        def bind(self, **kwargs):
+            self.bound_kwargs = dict(kwargs)
+            return self
+
+        async def ainvoke(self, messages):
+            return AIMessage(content="ok")
+
+    llm = FakeLLM()
+    provider = OpenAIProvider.__new__(OpenAIProvider)
+    provider._model_name = "fake"
+    provider._llm = llm
+
+    async def run():
+        return await provider.generate(
+            messages=[Message(role=Role.USER, content="hello")],
+            temperature=1.0,
+            max_tokens=64,
+        )
+
+    asyncio.run(run())
+    assert llm.bound_kwargs == {"temperature": 1.0, "max_tokens": 64}

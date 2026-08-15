@@ -146,3 +146,18 @@ def test_desktop_frontend_exposes_ask_allow_deny_controls():
     assert "is-selected" in app_tsx
     assert "允许" in app_tsx
     assert "拒绝" in app_tsx
+
+
+def test_desktop_bridge_auth_contract_across_electron_and_frontend():
+    """The per-launch token must flow: main.js IPC -> preload -> renderer -> auth message."""
+    main_js = (ELECTRON_DIR / "main.js").read_text(encoding="utf-8")
+    preload_js = (ELECTRON_DIR / "preload.js").read_text(encoding="utf-8")
+    app_tsx = (ROOT / "desktop" / "python-frontend" / "src" / "App.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "ipcMain.handle('bridge:token'" in main_js
+    assert "getBridgeToken" in preload_js
+    assert "ipcRenderer.invoke('bridge:token')" in preload_js
+    assert "getBridgeToken?.()" in app_tsx
+    assert "action: 'auth'" in app_tsx

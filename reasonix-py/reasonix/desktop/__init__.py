@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import hmac
 import json
 import logging
 import os
@@ -13,7 +14,6 @@ from typing import Any
 
 from reasonix.boot import (
     ConfigError,
-    build_controller,
     build_controller_async,
     build_unconfigured_controller,
 )
@@ -185,44 +185,71 @@ class WebSocketSink(Sink):
 
 
 class BridgeClient:
-    """One desktop WebSocket connection and its isolated agent session."""
+    """One desktop WebSocket connection and its isolated agent session.
 
-    def __init__(self, websocket: Any, controller: Any | None = None) -> None:
+    The agent controller is built lazily, only after the connection proves
+    it holds the per-launch security token (when one is configured). Probe
+    connections from the Electron readiness check therefore never pay the
+    provider/MCP startup cost, and unauthenticated local processes cannot
+    drive the agent.
+    """
+
+    def __init__(
+        self,
+        websocket: Any,
+        required_token: str = "",
+    ) -> None:
         self.ws = websocket
         self.sink = WebSocketSink()
-        self.controller = controller or build_controller(sink=self.sink)
+        self.controller: Any | None = None
+        self._required_token = required_token or ""
+        self._authenticated = not self._required_token
         self._send_task: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
         self._workflow_task: asyncio.Task[None] | None = None
         self._workflow_run: dict[str, Any] | None = None
 
     @classmethod
-    async def create(cls, websocket: Any) -> BridgeClient:
+    async def create(cls, websocket: Any, required_token: str = "") -> BridgeClient:
         instance = cls.__new__(cls)
         instance.ws = websocket
         instance.sink = WebSocketSink()
-        history_store = SessionStore(default_history_path())
-        try:
-            instance.controller = await build_controller_async(
-                sink=instance.sink,
-                history_store=history_store,
-            )
-        except ConfigError as exc:
-            logger.info("Desktop provider setup required: %s", exc)
-            instance.controller = build_unconfigured_controller(
-                str(exc),
-                sink=instance.sink,
-                history_store=history_store,
-            )
+        instance.controller = None
+        instance._required_token = required_token or ""
+        instance._authenticated = not instance._required_token
         instance._send_task = None
         instance._send_lock = asyncio.Lock()
         instance._workflow_task = None
         instance._workflow_run = None
         return instance
 
+    def _authenticate(self, supplied: str) -> bool:
+        if not self._required_token:
+            return True
+        if not hmac.compare_digest(supplied or "", self._required_token):
+            return False
+        self._authenticated = True
+        return True
+
+    async def _ensure_controller(self) -> None:
+        if self.controller is not None:
+            return
+        history_store = SessionStore(default_history_path())
+        try:
+            self.controller = await build_controller_async(
+                sink=self.sink,
+                history_store=history_store,
+            )
+        except ConfigError as exc:
+            logger.info("Desktop provider setup required: %s", exc)
+            self.controller = build_unconfigured_controller(
+                str(exc),
+                sink=self.sink,
+                history_store=history_store,
+            )
+
     async def start(self) -> None:
         self._send_task = asyncio.create_task(self._send_loop())
-        await self.send_status()
 
     async def handle_message(self, raw: str) -> None:
         try:
@@ -230,6 +257,21 @@ class BridgeClient:
             if not isinstance(message, dict):
                 raise ValueError("Message must be a JSON object")
             action = str(message.get("action", ""))
+            if action == "auth":
+                if not self._authenticate(str(message.get("token", ""))):
+                    await self._send_json(
+                        {"kind": "error", "error": "invalid security token"}
+                    )
+                    return
+                await self._ensure_controller()
+                await self.send_status()
+                return
+            if not self._authenticated:
+                await self._send_json(
+                    {"kind": "error", "error": "authentication required"}
+                )
+                return
+            await self._ensure_controller()
             if action == "send":
                 text = str(message.get("text", "")).strip()
                 if text:
@@ -595,16 +637,27 @@ class BridgeClient:
         await self._cancel_workflow()
         if self._send_task:
             self._send_task.cancel()
-        await self.controller.close()
+        if self.controller is not None:
+            await self.controller.close()
 
 
-async def run_server(host: str = "127.0.0.1", port: int = 9092) -> None:
+async def run_server(
+    host: str = "127.0.0.1",
+    port: int = 9092,
+    required_token: str | None = None,
+) -> None:
     import websockets
+
+    # Electron injects a fresh random token per launch. When absent (CLI/dev
+    # mode) the bridge stays open so local development keeps working; the
+    # packaged desktop always supplies a token.
+    if required_token is None:
+        required_token = os.environ.get("AXIOM_SECURITY_TOKEN", "").strip()
 
     logger.info("Axiom desktop bridge starting at ws://%s:%s", host, port)
 
     async def handler(websocket: Any) -> None:
-        client = await BridgeClient.create(websocket)
+        client = await BridgeClient.create(websocket, required_token=required_token)
         await client.start()
         try:
             async for raw in websocket:

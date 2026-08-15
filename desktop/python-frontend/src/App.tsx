@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import {
   BUILTIN_COMPOSER_COMMANDS,
@@ -209,12 +209,21 @@ function App() {
     wsRef.current = websocket
     setConnectionError('')
 
-    websocket.onopen = () => {
+    websocket.onopen = async () => {
       reconnectAttemptRef.current = 0
       setConnected(true)
       setPhase('syncing')
       setConnectionError('')
-      websocket.send(JSON.stringify({ action: 'status' }))
+      // Authenticate on the desktop bridge with the per-launch token before
+      // any other message. In plain-browser dev mode the token is empty and
+      // the backend runs without a required token, so this stays compatible.
+      let token = ''
+      try {
+        token = (await window.reasonix?.getBridgeToken?.()) || ''
+      } catch {
+        token = ''
+      }
+      websocket.send(JSON.stringify({ action: 'auth', token }))
     }
     websocket.onmessage = event => {
       try {

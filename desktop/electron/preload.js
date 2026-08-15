@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('reasonix', {
   version: '0.2.1',
   getProviderSetup: () => ipcRenderer.invoke('provider-setup:status'),
   saveProviderSetup: (setup) => ipcRenderer.invoke('provider-setup:save', setup),
+  getBridgeToken: () => ipcRenderer.invoke('bridge:token'),
 })

@@ -60,8 +60,22 @@ class AnthropicProvider(Provider):
     def model_name(self) -> str:
         return self._model_name
 
-    def _bound_model(self, tools: list[dict[str, Any]] | None) -> Any:
-        return self._llm.bind_tools(_langchain_tool_defs(tools)) if tools else self._llm
+    def _bound_model(
+        self,
+        tools: list[dict[str, Any]] | None,
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> Any:
+        model = (
+            self._llm.bind_tools(_langchain_tool_defs(tools)) if tools else self._llm
+        )
+        overrides: dict[str, Any] = {}
+        if temperature is not None:
+            overrides["temperature"] = temperature
+        if max_tokens is not None:
+            overrides["max_tokens"] = max_tokens
+        return model.bind(**overrides) if overrides else model
 
     async def generate(
         self,
@@ -70,7 +84,9 @@ class AnthropicProvider(Provider):
         temperature: float = 0.0,
         max_tokens: int | None = None,
     ) -> tuple[Message, Usage]:
-        result = await self._bound_model(tools).ainvoke([_to_lc_msg(m) for m in messages])
+        result = await self._bound_model(
+            tools, temperature=temperature, max_tokens=max_tokens
+        ).ainvoke([_to_lc_msg(m) for m in messages])
         return _from_lc_msg(result), _usage_from_metadata(getattr(result, "usage_metadata", None))
 
     async def generate_stream(
@@ -81,7 +97,9 @@ class AnthropicProvider(Provider):
         max_tokens: int | None = None,
     ) -> AsyncIterator[StreamEvent]:
         aggregate: AIMessageChunk | None = None
-        async for chunk in self._bound_model(tools).astream([_to_lc_msg(m) for m in messages]):
+        async for chunk in self._bound_model(
+            tools, temperature=temperature, max_tokens=max_tokens
+        ).astream([_to_lc_msg(m) for m in messages]):
             if not isinstance(chunk, AIMessageChunk):
                 continue
             aggregate = chunk if aggregate is None else aggregate + chunk

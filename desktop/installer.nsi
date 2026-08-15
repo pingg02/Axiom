@@ -1,16 +1,18 @@
-; Reasonix Windows Installer (NSIS)
+; Axiom Windows Installer (NSIS)
 ; 编译: makensis installer.nsi
 ; 构建前需先执行:
 ;   cd reasonix-py && python -m PyInstaller reasonix_min.spec
 ;   cd reasonix-java && mvn package -DskipTests
+; 注意: electron-builder 的 "Axiom Setup <version>.exe" 才是正式安装包;
+;       本 legacy NSIS 仅保留给旧版 CLI 启动方式, 与产品版本保持一致。
 
-!define PRODUCT_NAME "Reasonix"
-!define PRODUCT_VERSION "0.1.0"
-!define PRODUCT_PUBLISHER "Reasonix"
+!define PRODUCT_NAME "Axiom"
+!define PRODUCT_VERSION "0.2.1"
+!define PRODUCT_PUBLISHER "Axiom"
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
-OutFile "Reasonix-windows-amd64-installer.exe"
-InstallDir "$PROFILE\reasonix"
+OutFile "Axiom-windows-amd64-installer.exe"
+InstallDir "$PROFILE\axiom"
 RequestExecutionLevel user
 
 Section "Install"
@@ -32,16 +34,12 @@ Section "Install"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   
   ; 创建快捷方式
-  CreateDirectory "$SMPROGRAMS\Reasonix"
-  CreateShortCut "$SMPROGRAMS\Reasonix\Reasonix.lnk" "$INSTDIR\start_reasonix_full.cmd"
-  CreateShortCut "$SMPROGRAMS\Reasonix\Uninstall.lnk" "$INSTDIR\uninstall.exe"
-  
-  ; 添加到 PATH
-  EnVar::AddValue "PATH" "$INSTDIR"
+  CreateDirectory "$SMPROGRAMS\Axiom"
+  CreateShortCut "$SMPROGRAMS\Axiom\Axiom.lnk" "$INSTDIR\start_reasonix_full.cmd"
+  CreateShortCut "$SMPROGRAMS\Axiom\Uninstall.lnk" "$INSTDIR\uninstall.exe"
 SectionEnd
 
 Section "Uninstall"
   RMDir /r "$INSTDIR"
-  RMDir /r "$SMPROGRAMS\Reasonix"
-  EnVar::DeleteValue "PATH" "$INSTDIR"
+  RMDir /r "$SMPROGRAMS\Axiom"
 SectionEnd

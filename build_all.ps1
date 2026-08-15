@@ -31,7 +31,14 @@ $env:TMP = $env:TEMP
 
 # Prefer the Windows Python launcher so an unrelated activated virtual
 # environment cannot silently supply the interpreter for the release build.
-$pythonLauncher = Get-Command "py" -ErrorAction SilentlyContinue
+# CI (GitHub Actions with actions/setup-python) sets AXIOM_BUILD_USE_PYTHON=1
+# to force the `python` on PATH instead of the system `py` launcher.
+$usePythonDirect = $env:AXIOM_BUILD_USE_PYTHON -eq "1"
+$pythonLauncher = if ($usePythonDirect) {
+    $null
+} else {
+    Get-Command "py" -ErrorAction SilentlyContinue
+}
 if ($pythonLauncher) {
     $pythonExe = $pythonLauncher.Source
     $pythonPrefix = @("-3")
@@ -77,6 +84,10 @@ Write-Host "[1/6] Python exe done"
 # Step 2: Build Java fatjar
 Write-Host "[2/6] Building Java fatjar..."
 Set-Location (Join-Path $SRC "reasonix-java")
+# Run the test suite before packaging so a release build never ships
+# untested code (对标 DSH: PR builds run full verification).
+& ".\mvnw.cmd" test
+if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] Maven tests failed"; exit 1 }
 & ".\mvnw.cmd" package -DskipTests
 if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR] Maven failed"; exit 1 }
 
@@ -182,7 +193,7 @@ if (-not $makensis) {
     Set-Location (Join-Path $SRC "desktop")
     & "makensis" "installer.nsi"
     if ($LASTEXITCODE -eq 0) {
-        Copy-Item "Reasonix-windows-amd64-installer.exe" -Destination $BUILD_DIR -Force
+        Copy-Item "Axiom-windows-amd64-installer.exe" -Destination $BUILD_DIR -Force
         Write-Host "[6/6] Installer done"
     } else { Write-Host "[WARN] NSIS build failed" }
 }

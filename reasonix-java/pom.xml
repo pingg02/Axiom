@@ -13,7 +13,7 @@
 
     <groupId>com.reasonix</groupId>
     <artifactId>reasonix-security</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.1</version>
     <name>reasonix-security</name>
     <description>Reasonix security layer — Permission Gate, Guardian, Secrets, Sandbox</description>
 

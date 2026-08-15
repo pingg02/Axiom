@@ -1,4 +1,4 @@
-﻿import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -232,7 +232,12 @@ describe('Axiom desktop interaction contracts', () => {
     const user = userEvent.setup()
     const { container } = render(<App />)
     act(() => socket().open())
-    expect(messages(socket())).toContainEqual({ action: 'status' })
+    // The bridge requires the per-launch token as the first message. In the
+    // test (no Electron IPC bridge) the token is empty, which the dev-mode
+    // backend accepts.
+    await waitFor(() =>
+      expect(messages(socket())).toContainEqual({ action: 'auth', token: '' }),
+    )
 
     act(() => socket().receive({
       kind: 'approval_request',
