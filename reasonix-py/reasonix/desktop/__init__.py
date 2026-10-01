@@ -549,7 +549,11 @@ class BridgeClient:
                 "status": {
                     "workspace": self.controller.opts.workspace if self.remote else str(Path.cwd()),
                     "remote": (
-                        {**self.remote, "connected": self.controller.connected}
+                        {
+                            **self.remote,
+                            "connected": self.controller.connected,
+                            "session_id": self.controller.session.id,
+                        }
                         if self.remote
                         else None
                     ),

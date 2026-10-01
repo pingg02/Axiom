@@ -54,6 +54,7 @@ export interface DesktopStatus {
     directory: string
     version: string
     connected: boolean
+    session_id?: string
   } | null
   workspace: string
   session_id: string

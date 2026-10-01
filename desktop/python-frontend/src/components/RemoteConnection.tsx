@@ -18,6 +18,8 @@ export function RemoteConnection(props: {
         <dl className="axiom-details">
           <div><dt>服务器</dt><dd>{props.remote.url} · {props.remote.version}</dd></div>
           <div><dt>远程项目</dt><dd>{props.remote.directory}</dd></div>
+          <div><dt>Session ID</dt><dd><code>{props.remote.session_id || '—'}</code></dd></div>
+          <div><dt>事件连接</dt><dd>{props.remote.connected ? '已连接' : '已断开，请重新连接'}</dd></div>
         </dl>
         <p>对话、文件修改和命令在远程执行；远程审批由 OpenCode 管理。</p>
         <button onClick={() => props.onAction({ action: 'disconnect_remote' })}>返回本地（远程任务继续）</button>
