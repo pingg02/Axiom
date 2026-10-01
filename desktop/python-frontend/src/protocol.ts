@@ -46,6 +46,9 @@ export interface SessionSummary {
 export type PermissionMode = 'ask' | 'allow' | 'deny'
 
 export interface DesktopStatus {
+  experiments?: ExperimentRecord[]
+  pending_approvals?: NonNullable<StreamEvent['approval']>[]
+  pending_questions?: Array<{ id: string; questions: AskQuestionView[] }>
   remote?: {
     url: string
     directory: string
@@ -84,6 +87,24 @@ export interface DesktopStatus {
   recent_changes?: FileChange[]
   workflows?: WorkflowDefinition[]
   workflow_run?: WorkflowRun | null
+}
+
+export interface ExperimentRecord {
+  id: string
+  name: string
+  command: string
+  state: string
+  directory: string
+  config_path?: string
+  branch?: string
+  commit?: string
+  dirty?: boolean
+  pid?: number
+  output_dir?: string
+  log_path?: string
+  log_tail?: string
+  exit_code?: number
+  checkpoints?: string[]
 }
 
 export interface SkillInfo {
@@ -199,6 +220,7 @@ export type ProviderSetupStatus = {
 declare global {
   interface Window {
     reasonix?: {
+      getBridgeToken?: () => Promise<string>
       platform: string
       version: string
       getProviderSetup: () => Promise<ProviderSetupStatus>

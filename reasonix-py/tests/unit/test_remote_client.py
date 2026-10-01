@@ -63,6 +63,27 @@ async def test_sse_multiline_data_and_heartbeat():
     await client.close()
 
 
+async def test_remote_file_search_preserves_directory_scope():
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json=["src/model.py"])
+
+    client = OpenCodeClient(
+        RemoteConfig("http://localhost:4096", "/remote/project"),
+        transport=httpx.MockTransport(handler),
+    )
+    assert await client.request(
+        "GET",
+        "/find/file",
+        params={"query": "model", "limit": "40"},
+    ) == ["src/model.py"]
+    assert seen[0].url.params["directory"] == "/remote/project"
+    assert seen[0].url.params["query"] == "model"
+    await client.close()
+
+
 async def test_child_permissions_and_text_deduplication(tmp_path):
     requests = []
 

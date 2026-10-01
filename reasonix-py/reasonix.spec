@@ -18,7 +18,7 @@ a = Analysis(
     ['reasonix/__main__.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=[('reasonix/experiments/worker.py', 'reasonix/experiments')],
     hiddenimports=[
         'reasonix.cli',
         'reasonix.cli.cli',

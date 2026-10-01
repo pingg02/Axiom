@@ -52,9 +52,21 @@ class OpenCodeClient:
     async def close(self) -> None:
         await self.http.aclose()
 
-    async def request(self, method: str, path: str, body: Any = None) -> Any:
+    async def request(
+        self,
+        method: str,
+        path: str,
+        body: Any = None,
+        *,
+        params: dict[str, str] | None = None,
+    ) -> Any:
         try:
-            response = await self.http.request(method, path.lstrip("/"), json=body)
+            response = await self.http.request(
+                method,
+                path.lstrip("/"),
+                json=body,
+                params=params,
+            )
             response.raise_for_status()
             return response.json() if response.content else None
         except httpx.HTTPStatusError as exc:

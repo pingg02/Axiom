@@ -23,11 +23,11 @@ class RemoteController(Controller):
             ControllerOptions(
                 registry=RegistrySnapshot(),
                 sink=sink,
-                history_store=store,
                 workspace=client.config.directory,
                 provider_name="OpenCode remote",
             )
         )
+        self.opts.history_store = store
         self.client = client
         self.version = ""
         self._remote_sessions: list[SessionRecord] = []
@@ -74,6 +74,9 @@ class RemoteController(Controller):
         self._remote_approvals.clear()
         self._remote_questions.clear()
         self._remote_mode = "ask"
+        for rule in info.get("permission", []):
+            if rule.get("permission") == "*" and rule.get("pattern") == "*":
+                self._remote_mode = str(rule.get("action", "ask"))
         self._create_session_record()
         await self.refresh()
 
@@ -109,13 +112,26 @@ class RemoteController(Controller):
         self._history = messages
         if self.opts.history_store:
             self.opts.history_store.save_messages(self.session.id, messages)
+        self._sink.emit(Event(kind=Kind.HISTORY_COMMITTED))
         statuses = await self.client.request("GET", "/session/status")
         busy = statuses.get(self.session.id, {}).get("type") in {"busy", "retry"}
         self.session.state = SessionState.RUNNING if busy else SessionState.IDLE
-        for info in await self.client.request(
-            "GET", self.client.session_path(self.session.id, "/children")
-        ):
-            self._session_ids.add(str(info["id"]))
+        pending_sessions = [self.session.id]
+        visited: set[str] = set()
+        while pending_sessions:
+            session_id = pending_sessions.pop()
+            if session_id in visited:
+                continue
+            if len(visited) >= 200:
+                raise RemoteError("Remote session tree exceeds the 200-session safety limit")
+            visited.add(session_id)
+            for info in await self.client.request(
+                "GET",
+                self.client.session_path(session_id, "/children"),
+            ):
+                child_id = str(info["id"])
+                self._session_ids.add(child_id)
+                pending_sessions.append(child_id)
         pending = await self.client.request("GET", "/permission")
         self._remote_approvals.clear()
         for item in pending:
@@ -145,13 +161,22 @@ class RemoteController(Controller):
         self._turn_done.clear()
         self._last_error = ""
         self.session.state = SessionState.RUNNING
+        # Keep the user's intent visible during UI reattachment. Server history
+        # replaces this optimistic entry when refreshed; it is never replayed.
+        self._history.append(Message(role=Role.USER, content=text))
+        if self.opts.history_store:
+            self.opts.history_store.save_messages(self.session.id, self._history)
         self._sink.emit(Event(kind=Kind.TURN_STARTED))
         try:
             await self.client.prompt(self.session.id, text)
-        except RemoteError:
+        except RemoteError as exc:
             # A failed HTTP response does not prove the prompt was never admitted.
             # Refresh the server state and require an explicit user retry.
-            await self.refresh()
+            self._last_error = str(exc)
+            try:
+                await self.refresh()
+            except RemoteError:
+                pass
             self._turn_done.set()
             raise
 
@@ -211,11 +236,17 @@ class RemoteController(Controller):
     async def answer_ask(self, ask_id: str, answers: list[str]) -> None:
         if ask_id not in self._remote_questions:
             raise ValueError("Unknown remote question")
+        questions = self._remote_questions[ask_id]
+        if len(answers) != len(questions):
+            raise ValueError("Answer every remote question before submitting")
         await self.client.request(
             "POST",
             f"/question/{quote(ask_id, safe='')}/reply",
             {
-                "answers": [[answer] for answer in answers],
+                "answers": [
+                    answer.split("、") if question.multi_select else [answer]
+                    for question, answer in zip(questions, answers, strict=True)
+                ],
             },
         )
         self._remote_questions.pop(ask_id, None)
@@ -235,23 +266,28 @@ class RemoteController(Controller):
         if self._listener:
             self._listener.cancel()
             await asyncio.gather(self._listener, return_exceptions=True)
+        self._ready.clear()
         await self.client.close()
 
     async def _listen(self) -> None:
         failures = 0
+        connected_at = 0.0
         while True:
             try:
                 async for payload in self.client.events():
                     if payload.get("type") == "server.connected":
                         await self.refresh()
                         self._ready.set()
-                        failures = 0
+                        connected_at = time.monotonic()
                         if self.session.state == SessionState.IDLE:
                             self._turn_done.set()
                     await self.handle_event(payload)
                 raise RemoteError("Remote event stream closed")
-            except (RemoteError, TimeoutError) as exc:
+            except (RemoteError, TimeoutError, ValueError, TypeError, KeyError) as exc:
                 self._ready.clear()
+                if connected_at and time.monotonic() - connected_at >= 30:
+                    failures = 0
+                connected_at = 0
                 failures += 1
                 self._sink.emit(Event(kind=Kind.NOTICE, text=f"{exc}; reconnecting ({failures}/5)"))
                 if failures >= 5:
