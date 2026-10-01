@@ -23,6 +23,24 @@ opencode serve --hostname 127.0.0.1 --port 4096
 
 ## Windows 端连接
 
+当前改动在源码开发分支中，不会自动更新已安装的旧版 exe。可先打开两个本地终端：
+
+```powershell
+# 终端一：保持后台运行
+cd E:\Axiom\reasonix-py
+.venv\Scripts\python.exe -m reasonix desktop --host 127.0.0.1 --port 9092
+```
+
+```powershell
+# 终端二：开发界面
+cd E:\Axiom\desktop\python-frontend
+npm run dev
+```
+
+浏览器打开 `http://localhost:5173`。开发模式默认未设置桌面启动令牌，仅限本机测试，
+不要把 9092 暴露到公网。若首次弹出本地模型配置，远程模式可先关闭弹窗，去设置页
+连接远程 OpenCode；模型 API Key 应配置在远程服务上。正式 exe 需重新执行项目打包。
+
 使用 AutoDL 控制台提供的 SSH 账号、地址和端口建立隧道：
 
 ```powershell
