@@ -408,3 +408,6 @@ body::before {
   .axiom-workbench { grid-template-columns: minmax(0, 1fr); }
   .axiom-rail { display: none; }
 }
+.axiom-remote-form { display: grid; gap: 12px; }
+.axiom-remote-form label { display: grid; gap: 6px; }
+.axiom-remote-form input { width: 100%; padding: 10px; color: inherit; background: var(--panel, #202126); border: 1px solid #555; border-radius: 6px; }

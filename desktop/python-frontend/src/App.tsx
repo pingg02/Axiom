@@ -7,6 +7,7 @@ import {
 } from './components/Composer'
 import { ToolsModule, ToolTimeline } from './components/ToolsPanel'
 import { WorkflowModule } from './components/WorkflowModule'
+import { RemoteConnection } from './components/RemoteConnection'
 import type {
   ApprovalScope,
   AskQuestionView,
@@ -679,6 +680,8 @@ function App() {
                 provider={status?.provider}
                 providerSetup={providerSetup}
                 onProviderSetup={() => void refreshProviderSetup(true)}
+                remote={status?.remote}
+                onRemoteAction={action => wsRef.current?.send(JSON.stringify(action))}
               />
             )}
             {activeModule === 'diagnostics' && <DiagnosticsModule error={connectionError} status={status} runs={toolRuns} wsUrl={WS_URL} />}
@@ -911,6 +914,8 @@ function SessionsModule(props: {
 }
 
 function SettingsModule(props: {
+  remote: DesktopStatus['remote']
+  onRemoteAction: (action: Record<string, unknown>) => void
   wsUrl: string
   workspace: string
   permissionMode: PermissionMode
@@ -921,6 +926,7 @@ function SettingsModule(props: {
 }) {
   return (
     <div className="axiom-module axiom-two-columns">
+      <RemoteConnection remote={props.remote} onAction={props.onRemoteAction} />
       <section className="axiom-section">
         <div className="axiom-section-heading"><div><span>CONNECTION</span><h2>桌面桥</h2></div></div>
         <dl className="axiom-details"><div><dt>WebSocket</dt><dd>{props.wsUrl}</dd></div><div><dt>Workspace</dt><dd>{props.workspace || '尚未确认'}</dd></div></dl>

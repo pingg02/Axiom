@@ -208,6 +208,8 @@ class BridgeClient:
         self._send_lock = asyncio.Lock()
         self._workflow_task: asyncio.Task[None] | None = None
         self._workflow_run: dict[str, Any] | None = None
+        self._local_controller: Any | None = None
+        self.remote: dict[str, Any] | None = None
 
     @classmethod
     async def create(cls, websocket: Any, required_token: str = "") -> BridgeClient:
@@ -221,6 +223,8 @@ class BridgeClient:
         instance._send_lock = asyncio.Lock()
         instance._workflow_task = None
         instance._workflow_run = None
+        instance._local_controller = None
+        instance.remote = None
         return instance
 
     def _authenticate(self, supplied: str) -> bool:
@@ -287,13 +291,17 @@ class BridgeClient:
             elif action == "approve_all":
                 future_mode = str(message.get("future_mode", "")).strip()
                 if future_mode:
-                    self.controller.set_permission_mode(future_mode)
+                    await self._set_permission_mode(future_mode)
                 await self.controller.approve_all(
                     bool(message.get("allow", False)),
                     str(message.get("scope", "once")),
                 )
             elif action == "set_permission_mode":
-                self.controller.set_permission_mode(str(message.get("mode", "")))
+                await self._set_permission_mode(str(message.get("mode", "")))
+            elif action == "connect_remote":
+                await self._connect_remote(message)
+            elif action == "disconnect_remote":
+                await self._disconnect_remote()
             elif action == "answer_ask":
                 answers = message.get("answers", [])
                 if not isinstance(answers, list):
@@ -383,6 +391,52 @@ class BridgeClient:
         except asyncio.CancelledError:
             pass
 
+    async def _set_permission_mode(self, mode: str) -> None:
+        if self.remote:
+            await self.controller.update_permission_mode(mode)
+            return
+        self.controller.set_permission_mode(mode)
+
+    async def _connect_remote(self, message: dict[str, Any]) -> None:
+        from reasonix.remote.client import OpenCodeClient, RemoteConfig
+        from reasonix.remote.controller import RemoteController
+
+        if self._workflow_is_running() or self.controller.session.state.value != "idle":
+            raise ValueError("Finish or stop the current task before changing execution target")
+        config = RemoteConfig(
+            url=str(message.get("url", "")).strip(),
+            directory=str(message.get("directory", "")).strip(),
+            username=str(message.get("username", "opencode")),
+            password=str(message.get("password", "")),
+        )
+        controller = RemoteController(
+            OpenCodeClient(config), self.sink, SessionStore(default_history_path()),
+        )
+        try:
+            await controller.connect(str(message.get("session_id", "")).strip())
+        except Exception:
+            await controller.close()
+            raise
+        if self.remote:
+            await self.controller.close()
+        else:
+            self._local_controller = self.controller
+        self.controller = controller
+        self.remote = {
+            "url": config.url, "directory": config.directory,
+            "version": controller.version, "connected": True,
+        }
+
+    async def _disconnect_remote(self) -> None:
+        if not self.remote:
+            return
+        if self._workflow_is_running():
+            raise ValueError("Stop the workflow before detaching its execution target")
+        await self.controller.close()
+        self.controller = self._local_controller
+        self._local_controller = None
+        self.remote = None
+
     async def _send_json(self, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, ensure_ascii=False)
         async with self._send_lock:
@@ -450,7 +504,11 @@ class BridgeClient:
             {
                 "kind": "status",
                 "status": {
-                    "workspace": str(Path.cwd()),
+                    "workspace": self.controller.opts.workspace if self.remote else str(Path.cwd()),
+                    "remote": (
+                        {**self.remote, "connected": self.controller.connected}
+                        if self.remote else None
+                    ),
                     "session_id": self.controller.session.id,
                     "session_state": self.controller.session.state.value,
                     "permission_mode": self.controller.permission_mode,
@@ -470,11 +528,11 @@ class BridgeClient:
                             self.controller.opts, "security_client", None
                         ) is not None,
                         "backend": (
-                            "java-job-object"
-                            if getattr(
-                                self.controller.opts, "security_client", None
-                            ) is not None
-                            else "python-direct"
+                            "remote-opencode" if self.remote else (
+                                "java-job-object" if getattr(
+                                    self.controller.opts, "security_client", None
+                                ) is not None else "python-direct"
+                            )
                         ),
                         "error": getattr(
                             self.controller.opts, "security_error", ""
@@ -639,6 +697,8 @@ class BridgeClient:
             self._send_task.cancel()
         if self.controller is not None:
             await self.controller.close()
+        if self._local_controller is not None:
+            await self._local_controller.close()
 
 
 async def run_server(

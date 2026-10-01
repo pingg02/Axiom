@@ -46,6 +46,12 @@ export interface SessionSummary {
 export type PermissionMode = 'ask' | 'allow' | 'deny'
 
 export interface DesktopStatus {
+  remote?: {
+    url: string
+    directory: string
+    version: string
+    connected: boolean
+  } | null
   workspace: string
   session_id: string
   session_state: string
