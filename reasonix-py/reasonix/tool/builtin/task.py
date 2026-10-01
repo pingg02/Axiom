@@ -1,6 +1,5 @@
 """Built-in tool: task — run a focused sub-task in an isolated sub-agent."""
 
-import json
 from typing import Any
 
 from reasonix.tool.base import Tool
@@ -33,14 +32,4 @@ class TaskTool(Tool):
         }
 
     async def execute(self, args_json: str) -> str:
-        args = json.loads(args_json)
-        prompt = args["prompt"]
-        desc = args.get("description", "sub-task")
-
-        # For now, return a placeholder — real sub-agent dispatch requires
-        # the full agent loop integration (available in Phase 4)
-        return (
-            f"[task:{desc}] Sub-agent dispatched. "
-            f"Task: {prompt[:200]}... "
-            f"(Full sub-agent execution requires boot integration)"
-        )
+        return "Error: task needs a Controller-managed runner; no sub-agent was started."

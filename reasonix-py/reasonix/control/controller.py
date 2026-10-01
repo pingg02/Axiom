@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from reasonix.agent.runner import Runner, RunnerOptions
+from reasonix.agent.runner import Runner, RunnerOptions, TurnBudget
 from reasonix.diff import Change
 from reasonix.event import ApprovalRequest, AskQuestion, Event, Kind, Sink
 from reasonix.grpc import SecurityClient
 from reasonix.history import ChangeRecord, SessionRecord, SessionStore, WorkflowRecord
 from reasonix.memory import MemorySet
 from reasonix.permission.permission import ApprovalScope, Decision, Gate
-from reasonix.provider import Message, Provider
+from reasonix.provider import Message, Provider, ToolCall
 from reasonix.tool.registry import RegistrySnapshot
 
 
@@ -44,6 +45,8 @@ class ControllerOptions:
     memory: MemorySet | None = None
     sink: Sink | None = None
     max_steps: int = 50
+    max_subagent_depth: int = 2
+    subagent_steps: int = 10
     temperature: float = 0.0
     language: str = ""
     additional_prompt: str = ""
@@ -72,20 +75,18 @@ class Controller:
         self._provider = opts.provider
         self._history: list[Message] = []
         self._current_turn_id = ""
+        self._turn_budget = TurnBudget(opts.max_steps)
         self._last_error = ""
         self._turn_done = asyncio.Event()
         self._turn_task: asyncio.Task[None] | None = None
         self._cancel_flag = False
         self._last_error = ""
-        self._approval_futures: dict[
-            str, asyncio.Future[tuple[bool, ApprovalScope]]
-        ] = {}
+        self._approval_futures: dict[str, asyncio.Future[tuple[bool, ApprovalScope]]] = {}
         self._approval_requests: dict[str, ApprovalRequest] = {}
         self._ask_futures: dict[str, asyncio.Future[list[str]]] = {}
+        self._ask_questions: dict[str, list[AskQuestion]] = {}
         self._initial_permission_mode = (
-            self.opts.permission_gate.policy.mode
-            if self.opts.permission_gate
-            else Decision.ALLOW
+            self.opts.permission_gate.policy.mode if self.opts.permission_gate else Decision.ALLOW
         )
         if self.opts.permission_gate and self.opts.permission_gate.approver is None:
             self.opts.permission_gate.approver = _ControllerApprover(self)
@@ -107,6 +108,7 @@ class Controller:
             return
 
         self._cancel_flag = False
+        self._last_error = ""
         self._turn_done.clear()
         self.session.state = SessionState.RUNNING
         if self.session.title == "New session":
@@ -114,12 +116,14 @@ class Controller:
             if self.opts.history_store:
                 self.opts.history_store.set_title(self.session.id, self.session.title)
         if self.opts.history_store:
+            self._history = self.opts.history_store.reconcile_interrupted_tools(self.session.id)
             self.opts.history_store.save_checkpoint(
                 self.session.id,
                 text,
                 self._history,
             )
         self._current_turn_id = str(uuid.uuid4())
+        self._turn_budget = TurnBudget(self.opts.max_steps)
         runner = Runner(
             RunnerOptions(
                 sink=self._sink,
@@ -135,6 +139,10 @@ class Controller:
                 permission_gate=self.opts.permission_gate,
                 history=list(self._history),
                 change_callback=self._record_change,
+                progress_callback=self._save_progress,
+                tool_state_callback=self._record_tool,
+                task_callback=lambda args: self._run_subagent(args, 1),
+                budget=self._turn_budget,
                 security_client=self.opts.security_client,
                 security_required=self.opts.security_required,
                 workspace=self.opts.workspace,
@@ -147,17 +155,14 @@ class Controller:
         self._cancel_pending_prompts()
         if self._turn_task and not self._turn_task.done():
             self._turn_task.cancel()
-            self._sink.emit(
-                Event(kind=Kind.NOTICE, level="info", text="Turn cancelled by user.")
-            )
+            self._sink.emit(Event(kind=Kind.NOTICE, level="info", text="Turn cancelled by user."))
             self._sink.emit(Event(kind=Kind.TURN_DONE))
+            await asyncio.gather(self._turn_task, return_exceptions=True)
         self.session.state = SessionState.IDLE
         if self.opts.history_store:
             self.opts.history_store.set_status(self.session.id, "cancelled")
 
-    async def approve(
-        self, request_id: str, allow: bool, scope: str = "once"
-    ) -> None:
+    async def approve(self, request_id: str, allow: bool, scope: str = "once") -> None:
         future = self._approval_futures.pop(request_id, None)
         self._approval_requests.pop(request_id, None)
         if future and not future.done():
@@ -178,6 +183,10 @@ class Controller:
     @property
     def pending_approvals(self) -> list[ApprovalRequest]:
         return list(self._approval_requests.values())
+
+    @property
+    def pending_questions(self) -> dict[str, list[AskQuestion]]:
+        return dict(self._ask_questions)
 
     @property
     def history_messages(self) -> list[Message]:
@@ -219,6 +228,7 @@ class Controller:
 
     async def answer_ask(self, ask_id: str, answers: list[str]) -> None:
         future = self._ask_futures.pop(ask_id, None)
+        self._ask_questions.pop(ask_id, None)
         if future and not future.done():
             future.set_result([str(answer) for answer in answers])
             self.session.state = SessionState.RUNNING
@@ -227,6 +237,7 @@ class Controller:
         ask_id = str(uuid.uuid4())
         future: asyncio.Future[list[str]] = asyncio.get_running_loop().create_future()
         self._ask_futures[ask_id] = future
+        self._ask_questions[ask_id] = questions
         self.session.state = SessionState.AWAITING_ASK
         self._sink.emit(
             Event(
@@ -269,7 +280,7 @@ class Controller:
             created_at=record.created_at,
             state=SessionState.IDLE,
         )
-        self._history = self.opts.history_store.load_messages(session_id)
+        self._history = self.opts.history_store.reconcile_interrupted_tools(session_id)
         self._current_turn_id = ""
         self.opts.history_store.set_status(session_id, "idle")
 
@@ -324,9 +335,7 @@ class Controller:
             else:
                 current = path.read_text(encoding="utf-8") if path.exists() else None
             if current != record.new_content:
-                raise ValueError(
-                    f"Cannot undo because the file changed afterwards: {record.path}"
-                )
+                raise ValueError(f"Cannot undo because the file changed afterwards: {record.path}")
             virtual_contents[path] = record.old_content
             final_contents[path] = record.old_content
 
@@ -369,9 +378,7 @@ class Controller:
                 self._last_error = result.error
                 self._sink.emit(Event(kind=Kind.ERROR, error=result.error))
                 if self.opts.history_store:
-                    self.opts.history_store.set_status(
-                        self.session.id, "failed", result.error
-                    )
+                    self.opts.history_store.set_status(self.session.id, "failed", result.error)
             elif self.opts.history_store:
                 self.opts.history_store.clear_checkpoint(self.session.id)
                 self.opts.history_store.set_status(self.session.id, "idle")
@@ -384,9 +391,7 @@ class Controller:
             self._sink.emit(Event(kind=Kind.ERROR, error=str(exc)))
             self._sink.emit(Event(kind=Kind.TURN_DONE))
             if self.opts.history_store:
-                self.opts.history_store.set_status(
-                    self.session.id, "interrupted", str(exc)
-                )
+                self.opts.history_store.set_status(self.session.id, "interrupted", str(exc))
         finally:
             self.session.state = SessionState.IDLE
             self._turn_task = None
@@ -410,6 +415,136 @@ class Controller:
             change,
         )
 
+    def _save_progress(self, messages: list[Message]) -> None:
+        self._history = list(messages)
+        if self.opts.history_store:
+            self.opts.history_store.save_messages(self.session.id, self._history)
+
+    def _record_tool(self, call: ToolCall, state: str, output: str) -> None:
+        if self.opts.history_store:
+            self.opts.history_store.record_tool(
+                self.session.id,
+                self._current_turn_id,
+                call,
+                state,
+                output,
+            )
+
+    async def _run_subagent(
+        self,
+        args_json: str,
+        depth: int,
+        parent_id: str = "",
+        parent_turn: str = "",
+    ) -> str:
+        if depth > self.opts.max_subagent_depth:
+            return "Error: maximum sub-agent nesting depth reached."
+        args = json.loads(args_json)
+        if not isinstance(args, dict) or not isinstance(args.get("prompt"), str):
+            return "Error: task requires a string prompt."
+        prompt = args["prompt"].strip()
+        if not prompt or len(prompt) > 32000:
+            return "Error: sub-agent prompt must contain 1-32000 characters."
+        provider = self.opts.provider
+        if provider is None:
+            return "Error: no provider is configured."
+        if args.get("subagent_model") not in {
+            None,
+            "",
+            self.opts.provider_model,
+            provider.model_name,
+        }:
+            return (
+                "Error: model overrides are not supported; the sub-agent inherits the parent model."
+            )
+        child_id = str(uuid.uuid4())
+        child_turn = str(uuid.uuid4())
+        store = self.opts.history_store
+        if store:
+            store.create_session(
+                child_id,
+                title="[subagent] " + str(args.get("description", "task"))[:80],
+                workspace=self.opts.workspace,
+                created_at=time.time(),
+            )
+            store.link_subagent(
+                parent_id or self.session.id,
+                parent_turn or self._current_turn_id,
+                child_id,
+                depth,
+            )
+            store.save_checkpoint(child_id, prompt, [])
+
+        def progress(messages: list[Message]) -> None:
+            if store:
+                store.save_messages(child_id, messages)
+
+        def tool_state(call: ToolCall, state: str, output: str) -> None:
+            if store:
+                store.record_tool(child_id, child_turn, call, state, output)
+
+        def change(call_id: str, change: Change) -> None:
+            self._record_change(call_id, change)
+            if store:
+                store.record_change(child_id, child_turn, change)
+
+        registry = RegistrySnapshot(
+            tools={
+                name: tool
+                for name, tool in self.opts.registry.tools.items()
+                if name != "task" or depth < self.opts.max_subagent_depth
+            }
+        )
+        self._sink.emit(
+            Event(kind=Kind.NOTICE, text=f"Sub-agent {child_id[:8]} started (depth {depth}).")
+        )
+        runner = Runner(
+            RunnerOptions(
+                sink=_SubagentSink(self._sink, child_id),
+                registry=registry,
+                provider=provider,
+                memory=self.opts.memory,
+                instructions=self.opts.instructions,
+                additional_prompt=self.opts.additional_prompt,
+                language=self.opts.language,
+                max_steps=min(self.opts.subagent_steps, self.opts.max_steps),
+                temperature=self.opts.temperature,
+                ask_callback=self.ask_user,
+                permission_gate=self.opts.permission_gate,
+                change_callback=change,
+                progress_callback=progress,
+                tool_state_callback=tool_state,
+                task_callback=lambda child_args: self._run_subagent(
+                    child_args,
+                    depth + 1,
+                    child_id,
+                    child_turn,
+                ),
+                budget=self._turn_budget,
+                security_client=self.opts.security_client,
+                security_required=self.opts.security_required,
+                workspace=self.opts.workspace,
+            )
+        )
+        try:
+            result = await runner.run(prompt)
+            if store:
+                store.set_status(child_id, "failed" if result.error else "idle", result.error)
+                if not result.error:
+                    store.clear_checkpoint(child_id)
+            if result.error:
+                return f"Error: sub-agent {child_id}: {result.error}"
+            answer = result.message.content if result.message else ""
+            return f"[sub-agent session {child_id}]\n{answer}"
+        except asyncio.CancelledError:
+            if store:
+                store.set_status(child_id, "cancelled")
+            raise
+        except Exception as exc:
+            if store:
+                store.set_status(child_id, "interrupted", str(exc))
+            raise
+
     def _cancel_pending_prompts(self) -> None:
         futures: list[asyncio.Future[Any]] = [
             *self._approval_futures.values(),
@@ -418,6 +553,7 @@ class Controller:
         self._approval_futures.clear()
         self._approval_requests.clear()
         self._ask_futures.clear()
+        self._ask_questions.clear()
         for future in futures:
             if not future.done():
                 future.cancel()
@@ -436,6 +572,33 @@ class Controller:
 class _NoopSink:
     def emit(self, event: Event) -> None:
         pass
+
+
+class _SubagentSink:
+    def __init__(self, parent: Sink, child_id: str) -> None:
+        self.parent = parent
+        self.child_id = child_id
+
+    def emit(self, event: Event) -> None:
+        if event.kind in {
+            Kind.TURN_STARTED,
+            Kind.TURN_DONE,
+            Kind.HISTORY_COMMITTED,
+            Kind.TEXT,
+            Kind.REASONING,
+            Kind.MESSAGE,
+            Kind.PHASE,
+        }:
+            return
+        if event.tool:
+            event = replace(
+                event,
+                tool=replace(
+                    event.tool,
+                    id=f"{self.child_id}:{event.tool.id}",
+                ),
+            )
+        self.parent.emit(event)
 
 
 class _ControllerApprover:

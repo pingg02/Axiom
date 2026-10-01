@@ -20,6 +20,20 @@ from reasonix.tool.registry import RegistrySnapshot
 
 AskCallback = Callable[[list[AskQuestion]], Awaitable[list[str]]]
 ChangeCallback = Callable[[str, Change], None]
+ProgressCallback = Callable[[list[Message]], None]
+ToolStateCallback = Callable[[ToolCall, str, str], None]
+TaskCallback = Callable[[str], Awaitable[str]]
+
+
+@dataclass
+class TurnBudget:
+    remaining: int
+
+    def claim(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
 
 
 @dataclass
@@ -38,6 +52,10 @@ class RunnerOptions:
     permission_gate: Gate | None = None
     history: list[Message] = field(default_factory=list)
     change_callback: ChangeCallback | None = None
+    progress_callback: ProgressCallback | None = None
+    tool_state_callback: ToolStateCallback | None = None
+    task_callback: TaskCallback | None = None
+    budget: TurnBudget | None = None
     security_client: SecurityClient | None = None
     security_required: bool = False
     workspace: str = ""
@@ -78,12 +96,17 @@ class Runner:
             *self.opts.history,
             Message(role=Role.USER, content=user_input),
         ]
+        self._save_progress(conversation)
         total_usage = UsageInfo()
         final_message: Message | None = None
         error = ""
         steps = 0
 
         while steps < self.opts.max_steps:
+            if self.opts.budget and not self.opts.budget.claim():
+                error = "Shared parent/sub-agent provider-turn budget exhausted."
+                sink.emit(Event(kind=Kind.ERROR, error=error))
+                break
             steps += 1
             assistant, usage = await self._call_llm(
                 sink,
@@ -99,17 +122,23 @@ class Runner:
             if not assistant.tool_calls:
                 final_message = assistant
                 conversation.append(assistant)
+                self._save_progress(conversation)
                 sink.emit(Event(kind=Kind.MESSAGE, text=assistant.content))
                 break
 
             conversation.append(assistant)
+            self._save_progress(conversation)
+            for call in assistant.tool_calls:
+                self._record_tool(call, "planned")
             permission_results = await self._preflight_permissions(assistant.tool_calls)
             for tool_call, permission_result in zip(
                 assistant.tool_calls, permission_results, strict=True
             ):
+                self._record_tool(tool_call, "running")
                 output = await self._execute_tool(
                     sink, tool_call, permission_result=permission_result
                 )
+                self._record_tool(tool_call, "completed", output)
                 conversation.append(
                     Message(
                         role=Role.TOOL,
@@ -118,6 +147,7 @@ class Runner:
                         content=output,
                     )
                 )
+                self._save_progress(conversation)
         else:
             error = f"Agent reached the maximum of {self.opts.max_steps} steps."
             sink.emit(Event(kind=Kind.ERROR, error=error))
@@ -132,6 +162,15 @@ class Runner:
             steps=steps,
             messages=conversation[1:],
         )
+
+    def _save_progress(self, conversation: list[Message]) -> None:
+        if self.opts.progress_callback:
+            self.opts.progress_callback(conversation[1:])
+            self.opts.sink.emit(Event(kind=Kind.HISTORY_COMMITTED))
+
+    def _record_tool(self, call: ToolCall, state: str, output: str = "") -> None:
+        if self.opts.tool_state_callback:
+            self.opts.tool_state_callback(call, state, output)
 
     async def _call_llm(
         self,
@@ -187,13 +226,10 @@ class Runner:
         self, tool_calls: list[ToolCall]
     ) -> list[tuple[bool, str] | None]:
         """Queue every approval in a model batch before executing any tool."""
+
         async def check(tool_call: ToolCall) -> tuple[bool, str] | None:
             tool = self.opts.registry.by_name(tool_call.name)
-            if (
-                tool is None
-                or tool_call.name == "ask"
-                or self.opts.permission_gate is None
-            ):
+            if tool is None or tool_call.name == "ask" or self.opts.permission_gate is None:
                 return None
             return await self.opts.permission_gate.check(
                 tool_call.name,
@@ -268,7 +304,9 @@ class Runner:
         )
         sink.emit(Event(kind=Kind.TOOL_DISPATCH, tool=info))
         try:
-            if tool_call.name == "bash" and self.opts.security_required:
+            if tool_call.name == "task" and self.opts.task_callback:
+                output = await self.opts.task_callback(tool_call.args_json)
+            elif tool_call.name == "bash" and self.opts.security_required:
                 output = await self._execute_secure_bash(tool_call)
             else:
                 output = await tool.execute(tool_call.args_json)
@@ -296,10 +334,7 @@ class Runner:
         """Route desktop shell execution through the authenticated Java service."""
         client = self.opts.security_client
         if client is None:
-            return (
-                "Error: Java security service is unavailable; "
-                "the command was not executed."
-            )
+            return "Error: Java security service is unavailable; the command was not executed."
 
         try:
             args = json.loads(tool_call.args_json)
