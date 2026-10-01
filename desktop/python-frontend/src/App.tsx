@@ -7,6 +7,8 @@ import {
 } from './components/Composer'
 import { ToolsModule, ToolTimeline } from './components/ToolsPanel'
 import { WorkflowModule } from './components/WorkflowModule'
+import { RemoteConnection } from './components/RemoteConnection'
+import { Experiments } from './components/Experiments'
 import type {
   ApprovalScope,
   AskQuestionView,
@@ -210,6 +212,7 @@ function App() {
     setConnectionError('')
 
     websocket.onopen = async () => {
+      activeSessionRef.current = ''
       reconnectAttemptRef.current = 0
       setConnected(true)
       setPhase('syncing')
@@ -238,6 +241,7 @@ function App() {
         if (data.kind === 'status' && data.status) {
           setStatus(data.status)
           setPhase(data.status.session_state || 'idle')
+          setLoading(data.status.session_state !== 'idle')
           if (data.status.session_id !== activeSessionRef.current) {
             activeSessionRef.current = data.status.session_id
             const restored: Message[] = (data.status.session_messages || []).map(message => ({
@@ -246,6 +250,15 @@ function App() {
               text: message.text,
               toolName: message.tool_name,
             }))
+            for (const approval of data.status.pending_approvals || []) {
+              restored.push({ id: `approval-${approval.id}`, role: 'approval',
+                approvalId: approval.id,
+                text: `${approval.tool_name}\n${approval.subject}\n${approval.args_json}` })
+            }
+            for (const question of data.status.pending_questions || []) {
+              restored.push({ id: `ask-${question.id}`, role: 'ask', askId: question.id,
+                askQuestions: question.questions, text: '需要你的选择才能继续。' })
+            }
             if (data.status.recovery_prompt) {
               restored.push({
                 id: `recovery-${data.status.session_id}`,
@@ -267,20 +280,22 @@ function App() {
         } else if (data.kind === 'phase') {
           setPhase(data.text || data.phase_label || 'model')
         } else if (data.kind === 'text' && data.text) {
+          const text = data.text
           setMessages(previous => {
             const last = previous[previous.length - 1]
             if (last?.role === 'assistant' && !last.toolName) {
               const copy = [...previous]
-              copy[copy.length - 1] = { ...last, text: last.text + data.text }
+              copy[copy.length - 1] = { ...last, text: last.text + text }
               return copy
             }
-            return [...previous, { id: nowId(), role: 'assistant', text: data.text }]
+            return [...previous, { id: nowId(), role: 'assistant', text }]
           })
         } else if (data.kind === 'message' && data.text) {
+          const text = data.text
           setMessages(previous => {
             const last = previous[previous.length - 1]
-            if (last?.role === 'assistant' && last.text === data.text) return previous
-            return [...previous, { id: nowId(), role: 'assistant', text: data.text }]
+            if (last?.role === 'assistant' && last.text === text) return previous
+            return [...previous, { id: nowId(), role: 'assistant', text }]
           })
         } else if (data.kind === 'reasoning') {
           setPhase('reasoning')
@@ -672,6 +687,7 @@ function App() {
             )}
             {activeModule === 'settings' && (
               <SettingsModule
+                experiments={status?.experiments || []}
                 wsUrl={WS_URL}
                 workspace={workspace}
                 permissionMode={status?.permission_mode || 'ask'}
@@ -679,6 +695,8 @@ function App() {
                 provider={status?.provider}
                 providerSetup={providerSetup}
                 onProviderSetup={() => void refreshProviderSetup(true)}
+                remote={status?.remote}
+                onRemoteAction={action => wsRef.current?.send(JSON.stringify(action))}
               />
             )}
             {activeModule === 'diagnostics' && <DiagnosticsModule error={connectionError} status={status} runs={toolRuns} wsUrl={WS_URL} />}
@@ -911,6 +929,9 @@ function SessionsModule(props: {
 }
 
 function SettingsModule(props: {
+  experiments: NonNullable<DesktopStatus['experiments']>
+  remote: DesktopStatus['remote']
+  onRemoteAction: (action: Record<string, unknown>) => void
   wsUrl: string
   workspace: string
   permissionMode: PermissionMode
@@ -921,6 +942,9 @@ function SettingsModule(props: {
 }) {
   return (
     <div className="axiom-module axiom-two-columns">
+      <RemoteConnection remote={props.remote} onAction={props.onRemoteAction} />
+      <Experiments records={props.experiments} remote={Boolean(props.remote)}
+        onAction={props.onRemoteAction} />
       <section className="axiom-section">
         <div className="axiom-section-heading"><div><span>CONNECTION</span><h2>桌面桥</h2></div></div>
         <dl className="axiom-details"><div><dt>WebSocket</dt><dd>{props.wsUrl}</dd></div><div><dt>Workspace</dt><dd>{props.workspace || '尚未确认'}</dd></div></dl>

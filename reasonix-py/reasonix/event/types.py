@@ -28,6 +28,7 @@ class Kind(IntEnum):
     ASK_REQUEST = 10
     TURN_DONE = 11
     ERROR = 12
+    HISTORY_COMMITTED = 13
 
 
 @dataclass

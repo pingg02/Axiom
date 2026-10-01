@@ -14,6 +14,10 @@ Axiom is a local-first AI coding workbench for Windows. It combines a Python age
 - Ask / Allow / Deny approval flow for tool calls and potentially sensitive actions.
 - Slash command and workspace mention UX foundations for faster interaction.
 - Local packaging flow for Windows installer and portable desktop output.
+- Remote OpenCode sessions and detached Linux experiment jobs via an SSH tunnel.
+- UI reconnect without cancelling active turns; durable tool outcomes and bounded sub-agents.
+
+Remote research setup and implementation notes: [远程实验开发指南](docs/REMOTE_EXPERIMENTS.md).
 
 ## Project structure
 

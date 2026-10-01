@@ -7,7 +7,7 @@ a = Analysis(
     ['reasonix/cli/cli.py'],
     pathex=['.'],
     binaries=[],
-    datas=[],
+    datas=[('reasonix/experiments/worker.py', 'reasonix/experiments')],
     hiddenimports=(
         collect_submodules('reasonix')
         + collect_submodules('langchain_mcp_adapters')

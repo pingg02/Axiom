@@ -57,8 +57,7 @@ def default_history_path() -> Path:
         root = Path(os.environ.get("APPDATA", "~/.config")).expanduser() / "axiom-desktop"
     else:
         root = (
-            Path(os.environ.get("XDG_STATE_HOME", "~/.local/state")).expanduser()
-            / "axiom-desktop"
+            Path(os.environ.get("XDG_STATE_HOME", "~/.local/state")).expanduser() / "axiom-desktop"
         )
     return root / "state" / "axiom.db"
 
@@ -66,11 +65,16 @@ def default_history_path() -> Path:
 class SessionStore:
     """Persist sessions without storing provider credentials."""
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, recover_running: bool = False) -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._initialize()
+        if recover_running:
+            with self._lock, self._connect() as connection:
+                connection.execute(
+                    "UPDATE sessions SET status = 'interrupted' WHERE status = 'running'"
+                )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=10)
@@ -127,14 +131,31 @@ class SessionStore:
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS tool_executions (
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    call_id TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    args_json TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    output TEXT NOT NULL DEFAULT '',
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (session_id, turn_id, call_id),
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS subagent_runs (
+                    child_id TEXT PRIMARY KEY,
+                    parent_id TEXT NOT NULL,
+                    parent_turn_id TEXT NOT NULL,
+                    depth INTEGER NOT NULL,
+                    FOREIGN KEY (child_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (parent_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );
                 CREATE INDEX IF NOT EXISTS idx_sessions_updated
                 ON sessions(updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_workflows_workspace
                 ON workflows(workspace, updated_at DESC);
                 """
-            )
-            connection.execute(
-                "UPDATE sessions SET status = 'interrupted' WHERE status = 'running'"
             )
 
     def create_session(
@@ -200,6 +221,95 @@ class SessionStore:
             ).fetchall()
         return [_message_from_dict(json.loads(row["payload"])) for row in rows]
 
+    def record_tool(
+        self,
+        session_id: str,
+        turn_id: str,
+        call: ToolCall,
+        state: str,
+        output: str,
+    ) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO tool_executions
+                    (session_id, turn_id, call_id, tool_name, args_json, state, output, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id, turn_id, call_id) DO UPDATE SET
+                    state = excluded.state, output = excluded.output,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    session_id,
+                    turn_id,
+                    call.id,
+                    call.name,
+                    call.args_json,
+                    state,
+                    output,
+                    time.time(),
+                ),
+            )
+
+    def tool_executions(self, session_id: str) -> list[dict[str, object]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM tool_executions WHERE session_id = ? ORDER BY updated_at",
+                (session_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def link_subagent(self, parent_id: str, turn_id: str, child_id: str, depth: int) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "INSERT INTO subagent_runs VALUES (?, ?, ?, ?)",
+                (child_id, parent_id, turn_id, depth),
+            )
+
+    def subagent_runs(self, parent_id: str) -> list[dict[str, object]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM subagent_runs WHERE parent_id = ?",
+                (parent_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def reconcile_interrupted_tools(self, session_id: str) -> list[Message]:
+        """Close missing tool responses without replaying any external action."""
+        messages = self.load_messages(session_id)
+        results = {str(row["call_id"]): row for row in self.tool_executions(session_id)}
+        reconciled: list[Message] = []
+        for index, message in enumerate(messages):
+            reconciled.append(message)
+            if not message.tool_calls:
+                continue
+            following = messages[index + 1 :]
+            responded = set()
+            for response in following:
+                if response.role != Role.TOOL:
+                    break
+                responded.add(response.tool_call_id)
+            for call in message.tool_calls:
+                if call.id in responded:
+                    continue
+                result = results.get(call.id)
+                output = (
+                    str(result["output"])
+                    if result and result["state"] == "completed"
+                    else "Error: interrupted tool call; outcome is unknown. Do not automatically "
+                    "retry this action. Inspect files/job records and ask the user first."
+                )
+                reconciled.append(
+                    Message(
+                        role=Role.TOOL,
+                        tool_call_id=call.id,
+                        name=call.name,
+                        content=output,
+                    )
+                )
+        self.save_messages(session_id, reconciled)
+        return reconciled
+
     def save_checkpoint(
         self,
         session_id: str,
@@ -233,9 +343,7 @@ class SessionStore:
 
     def clear_checkpoint(self, session_id: str) -> None:
         with self._lock, self._connect() as connection:
-            connection.execute(
-                "DELETE FROM checkpoints WHERE session_id = ?", (session_id,)
-            )
+            connection.execute("DELETE FROM checkpoints WHERE session_id = ?", (session_id,))
 
     def checkpoint_prompt(self, session_id: str) -> str:
         with self._lock, self._connect() as connection:
@@ -296,10 +404,7 @@ class SessionStore:
                 """,
                 (session_id, turn_row["turn_id"]),
             ).fetchall()
-        return [
-            ChangeRecord(**{**dict(row), "reverted": bool(row["reverted"])})
-            for row in rows
-        ]
+        return [ChangeRecord(**{**dict(row), "reverted": bool(row["reverted"])}) for row in rows]
 
     def mark_turn_reverted(self, session_id: str, turn_id: str) -> None:
         with self._lock, self._connect() as connection:
@@ -359,9 +464,7 @@ class SessionStore:
                 workspace=str(row["workspace"]),
                 name=str(row["name"]),
                 steps=[
-                    str(step)
-                    for step in json.loads(str(row["steps_json"]))
-                    if str(step).strip()
+                    str(step) for step in json.loads(str(row["steps_json"])) if str(step).strip()
                 ],
                 created_at=float(row["created_at"]),
                 updated_at=float(row["updated_at"]),
@@ -417,21 +520,23 @@ def _message_from_dict(data: dict[str, object]) -> Message:
     raw_calls = data.get("tool_calls", [])
     raw_images = data.get("images", [])
     raw_duration = data.get("work_duration_ms", 0)
-    tool_calls = [
-        ToolCall(
-            id=str(call.get("id", "")),
-            name=str(call.get("name", "")),
-            args_json=str(call.get("args_json", "")),
-        )
-        for call in raw_calls
-        if isinstance(call, dict)
-    ] if isinstance(raw_calls, list) else []
+    tool_calls = (
+        [
+            ToolCall(
+                id=str(call.get("id", "")),
+                name=str(call.get("name", "")),
+                args_json=str(call.get("args_json", "")),
+            )
+            for call in raw_calls
+            if isinstance(call, dict)
+        ]
+        if isinstance(raw_calls, list)
+        else []
+    )
     return Message(
         role=Role(str(data.get("role", Role.USER.value))),
         content=str(data.get("content", "")),
-        images=[str(value) for value in raw_images]
-        if isinstance(raw_images, list)
-        else [],
+        images=[str(value) for value in raw_images] if isinstance(raw_images, list) else [],
         reasoning_content=str(data.get("reasoning_content", "")),
         reasoning_signature=str(data.get("reasoning_signature", "")),
         tool_calls=tool_calls,

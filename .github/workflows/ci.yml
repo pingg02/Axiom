@@ -66,11 +66,30 @@ jobs:
       - name: Frontend tests + build
         run: |
           npm ci
+          npx tsc --noEmit
           npx vitest run --pool=forks --maxWorkers=1 --no-file-parallelism
           npm run build
         working-directory: desktop/python-frontend
 
+  remote-worker:
+    name: Linux remote experiment supervisor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install runtime and test dependencies
+        run: python -m pip install -e ".[dev]"
+        working-directory: reasonix-py
+      - name: Verify real detached jobs and cancellation
+        run: |
+          python -m pytest tests/integration/test_experiment_worker_linux.py -q
+          python -m mypy --platform linux reasonix/experiments/worker.py
+        working-directory: reasonix-py
+
   build:
     name: Build installers
-    needs: verify
+    needs: [verify, remote-worker]
     uses: ./.github/workflows/build-windows.yml

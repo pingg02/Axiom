@@ -49,7 +49,8 @@ def test_session_store_round_trips_messages_and_marks_crash_checkpoint(tmp_path)
     store.save_messages("session-1", messages)
     store.save_checkpoint("session-1", "continue this", messages)
 
-    reopened = SessionStore(path)
+    assert SessionStore(path).get_session("session-1").status == "running"
+    reopened = SessionStore(path, recover_running=True)
 
     assert reopened.get_session("session-1").status == "interrupted"
     assert reopened.checkpoint_prompt("session-1") == "continue this"

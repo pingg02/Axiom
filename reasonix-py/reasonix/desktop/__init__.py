@@ -9,6 +9,8 @@ import json
 import logging
 import os
 import uuid
+from collections import deque
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -87,10 +89,9 @@ def _search_workspace_entries(workspace: Path, raw_query: str) -> list[dict[str,
             if name not in _WORKSPACE_SEARCH_IGNORES and not name.startswith(".")
         ]
         current_path = Path(current)
-        for name, is_dir in (
-            [(directory, True) for directory in directories]
-            + [(file_name, False) for file_name in files]
-        ):
+        for name, is_dir in [(directory, True) for directory in directories] + [
+            (file_name, False) for file_name in files
+        ]:
             scanned += 1
             if scanned > _WORKSPACE_SEARCH_SCAN_LIMIT:
                 break
@@ -176,12 +177,10 @@ class WebSocketSink(Sink):
     """Serialize controller events onto an asynchronous send queue."""
 
     def __init__(self) -> None:
-        self.queue: asyncio.Queue[str] = asyncio.Queue()
+        self.queue: asyncio.Queue[str] = asyncio.Queue(maxsize=8192)
 
     def emit(self, event: Event) -> None:
-        self.queue.put_nowait(
-            json.dumps(event_to_frontend_dict(event), ensure_ascii=False)
-        )
+        self.queue.put_nowait(json.dumps(event_to_frontend_dict(event), ensure_ascii=False))
 
 
 class BridgeClient:
@@ -198,6 +197,7 @@ class BridgeClient:
         self,
         websocket: Any,
         required_token: str = "",
+        runtime: DesktopRuntime | None = None,
     ) -> None:
         self.ws = websocket
         self.sink = WebSocketSink()
@@ -208,20 +208,19 @@ class BridgeClient:
         self._send_lock = asyncio.Lock()
         self._workflow_task: asyncio.Task[None] | None = None
         self._workflow_run: dict[str, Any] | None = None
+        self._local_controller: Any | None = None
+        self.remote: dict[str, Any] | None = None
+        self._runtime = runtime
+        self._experiment_store: Any | None = None
 
     @classmethod
-    async def create(cls, websocket: Any, required_token: str = "") -> BridgeClient:
-        instance = cls.__new__(cls)
-        instance.ws = websocket
-        instance.sink = WebSocketSink()
-        instance.controller = None
-        instance._required_token = required_token or ""
-        instance._authenticated = not instance._required_token
-        instance._send_task = None
-        instance._send_lock = asyncio.Lock()
-        instance._workflow_task = None
-        instance._workflow_run = None
-        return instance
+    async def create(
+        cls,
+        websocket: Any,
+        required_token: str = "",
+        runtime: DesktopRuntime | None = None,
+    ) -> BridgeClient:
+        return cls(websocket, required_token, runtime)
 
     def _authenticate(self, supplied: str) -> bool:
         if not self._required_token:
@@ -259,17 +258,21 @@ class BridgeClient:
             action = str(message.get("action", ""))
             if action == "auth":
                 if not self._authenticate(str(message.get("token", ""))):
-                    await self._send_json(
-                        {"kind": "error", "error": "invalid security token"}
-                    )
+                    await self._send_json({"kind": "error", "error": "invalid security token"})
+                    return
+                if self._runtime:
+                    await self._runtime.attach(self)
                     return
                 await self._ensure_controller()
                 await self.send_status()
                 return
             if not self._authenticated:
-                await self._send_json(
-                    {"kind": "error", "error": "authentication required"}
-                )
+                await self._send_json({"kind": "error", "error": "authentication required"})
+                return
+            if self._runtime:
+                if self not in self._runtime.clients:
+                    await self._runtime.attach(self)
+                await self._runtime.handle_message(raw)
                 return
             await self._ensure_controller()
             if action == "send":
@@ -287,13 +290,19 @@ class BridgeClient:
             elif action == "approve_all":
                 future_mode = str(message.get("future_mode", "")).strip()
                 if future_mode:
-                    self.controller.set_permission_mode(future_mode)
+                    await self._set_permission_mode(future_mode)
                 await self.controller.approve_all(
                     bool(message.get("allow", False)),
                     str(message.get("scope", "once")),
                 )
             elif action == "set_permission_mode":
-                self.controller.set_permission_mode(str(message.get("mode", "")))
+                await self._set_permission_mode(str(message.get("mode", "")))
+            elif action == "connect_remote":
+                await self._connect_remote(message)
+            elif action == "disconnect_remote":
+                await self._disconnect_remote()
+            elif action in {"submit_experiment", "refresh_experiment", "stop_experiment"}:
+                await self._experiment_action(action, message)
             elif action == "answer_ask":
                 answers = message.get("answers", [])
                 if not isinstance(answers, list):
@@ -332,9 +341,7 @@ class BridgeClient:
                     raise ValueError("Workflow needs at least one step")
                 if len(steps) > 20:
                     raise ValueError("Workflow cannot contain more than 20 steps")
-                workflow_id = str(message.get("workflow_id", "")).strip() or str(
-                    uuid.uuid4()
-                )
+                workflow_id = str(message.get("workflow_id", "")).strip() or str(uuid.uuid4())
                 self.controller.save_workflow(workflow_id, name, steps)
             elif action == "delete_workflow":
                 workflow_id = str(message.get("workflow_id", "")).strip()
@@ -347,11 +354,26 @@ class BridgeClient:
                 await self._cancel_workflow()
             elif action == "search_workspace":
                 query = str(message.get("query", ""))
-                items = await asyncio.to_thread(
-                    _search_workspace_entries,
-                    Path.cwd(),
-                    query,
-                )
+                if self.remote:
+                    paths = await self.controller.client.request(
+                        "GET",
+                        "/find/file",
+                        params={"query": query[:200], "limit": "40"},
+                    )
+                    items = [
+                        {
+                            "path": path,
+                            "name": str(path).rstrip("/").rsplit("/", 1)[-1],
+                            "is_dir": str(path).endswith("/"),
+                        }
+                        for path in paths
+                    ]
+                else:
+                    items = await asyncio.to_thread(
+                        _search_workspace_entries,
+                        Path.cwd(),
+                        query,
+                    )
                 await self._send_json(
                     {
                         "kind": "workspace_suggestions",
@@ -367,9 +389,7 @@ class BridgeClient:
             await self._send_json({"kind": "error", "error": str(exc)})
         except Exception as exc:
             logger.exception("Desktop bridge action failed")
-            await self._send_json(
-                {"kind": "error", "error": f"{type(exc).__name__}: {exc}"}
-            )
+            await self._send_json({"kind": "error", "error": f"{type(exc).__name__}: {exc}"})
 
     async def _send_loop(self) -> None:
         try:
@@ -380,8 +400,91 @@ class BridgeClient:
                         await self.ws.send(data)
                 except Exception:
                     break
+                finally:
+                    self.sink.queue.task_done()
         except asyncio.CancelledError:
             pass
+
+    async def _set_permission_mode(self, mode: str) -> None:
+        if self.remote:
+            await self.controller.update_permission_mode(mode)
+            return
+        self.controller.set_permission_mode(mode)
+
+    async def _connect_remote(self, message: dict[str, Any]) -> None:
+        from reasonix.remote.client import OpenCodeClient, RemoteConfig
+        from reasonix.remote.controller import RemoteController
+
+        if self._workflow_is_running() or self.controller.session.state.value != "idle":
+            raise ValueError("Finish or stop the current task before changing execution target")
+        config = RemoteConfig(
+            url=str(message.get("url", "")).strip(),
+            directory=str(message.get("directory", "")).strip(),
+            username=str(message.get("username", "opencode")),
+            password=str(message.get("password", "")),
+        )
+        controller = RemoteController(
+            OpenCodeClient(config),
+            self.sink,
+            SessionStore(default_history_path()),
+        )
+        try:
+            await controller.connect(str(message.get("session_id", "")).strip())
+        except Exception:
+            await controller.close()
+            raise
+        if self.remote:
+            await self.controller.close()
+        else:
+            self._local_controller = self.controller
+        self.controller = controller
+        self.remote = {
+            "url": config.url,
+            "directory": config.directory,
+            "version": controller.version,
+            "connected": True,
+        }
+
+    async def _disconnect_remote(self) -> None:
+        if not self.remote:
+            return
+        if self._workflow_is_running():
+            raise ValueError("Stop the workflow before detaching its execution target")
+        await self.controller.close()
+        self.controller = self._local_controller
+        self._local_controller = None
+        self.remote = None
+
+    def _experiments(self) -> Any:
+        from reasonix.experiments.store import ExperimentStore
+
+        if self._experiment_store is None:
+            self._experiment_store = ExperimentStore(default_history_path())
+        return self._experiment_store
+
+    async def _experiment_action(self, action: str, message: dict[str, Any]) -> None:
+        from reasonix.experiments.service import ExperimentService
+
+        if not self.remote:
+            raise ValueError("Connect to the remote OpenCode server first")
+        if self._workflow_is_running() or self.controller.session.state.value != "idle":
+            raise ValueError("Wait for the agent turn to finish before operating an experiment")
+        service = ExperimentService(self.controller.client, self._experiments())
+        if action == "submit_experiment":
+            if message.get("confirmed") is not True:
+                raise ValueError("Explicit confirmation is required to run a remote command")
+            await service.submit(
+                self.controller.session.id,
+                str(message.get("name", "")),
+                str(message.get("command", "")),
+                str(message.get("config_path", "")),
+            )
+        else:
+            await service.refresh(
+                str(message.get("experiment_id", "")),
+                stop=action == "stop_experiment",
+            )
+        await self.controller.refresh()
 
     async def _send_json(self, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, ensure_ascii=False)
@@ -409,18 +512,12 @@ class BridgeClient:
             for status in getattr(self.controller.opts, "mcp_statuses", [])
         ]
         session_records = (
-            self.controller.list_sessions()
-            if hasattr(self.controller, "list_sessions")
-            else []
+            self.controller.list_sessions() if hasattr(self.controller, "list_sessions") else []
         )
         workflows = (
-            self.controller.list_workflows()
-            if hasattr(self.controller, "list_workflows")
-            else []
+            self.controller.list_workflows() if hasattr(self.controller, "list_workflows") else []
         )
-        history_messages = list(
-            getattr(self.controller, "history_messages", [])
-        )
+        history_messages = list(getattr(self.controller, "history_messages", []))
         change_records = list(getattr(self.controller, "latest_changes", []))
         recent_changes = [
             build_change(
@@ -450,35 +547,46 @@ class BridgeClient:
             {
                 "kind": "status",
                 "status": {
-                    "workspace": str(Path.cwd()),
+                    "workspace": self.controller.opts.workspace if self.remote else str(Path.cwd()),
+                    "remote": (
+                        {
+                            **self.remote,
+                            "connected": self.controller.connected,
+                            "session_id": self.controller.session.id,
+                        }
+                        if self.remote
+                        else None
+                    ),
+                    "experiments": self._experiments().list(
+                        self.remote["url"].rstrip("/"),
+                        self.remote["directory"],
+                    )
+                    if self.remote
+                    else [],
                     "session_id": self.controller.session.id,
                     "session_state": self.controller.session.state.value,
                     "permission_mode": self.controller.permission_mode,
                     "provider": {
-                        "configured": not bool(
-                            self.controller.opts.configuration_error
-                        ),
+                        "configured": not bool(self.controller.opts.configuration_error),
                         "name": self.controller.opts.provider_name,
                         "model": self.controller.opts.provider_model,
                         "error": self.controller.opts.configuration_error,
                     },
                     "security": {
-                        "required": getattr(
-                            self.controller.opts, "security_required", False
-                        ),
-                        "connected": getattr(
-                            self.controller.opts, "security_client", None
-                        ) is not None,
+                        "required": getattr(self.controller.opts, "security_required", False),
+                        "connected": getattr(self.controller.opts, "security_client", None)
+                        is not None,
                         "backend": (
-                            "java-job-object"
-                            if getattr(
-                                self.controller.opts, "security_client", None
-                            ) is not None
-                            else "python-direct"
+                            "remote-opencode"
+                            if self.remote
+                            else (
+                                "java-job-object"
+                                if getattr(self.controller.opts, "security_client", None)
+                                is not None
+                                else "python-direct"
+                            )
                         ),
-                        "error": getattr(
-                            self.controller.opts, "security_error", ""
-                        ),
+                        "error": getattr(self.controller.opts, "security_error", ""),
                     },
                     "tool_count": len(tools),
                     "tools": tools,
@@ -506,9 +614,7 @@ class BridgeClient:
                         for record in session_records
                     ],
                     "session_messages": session_messages,
-                    "recovery_prompt": getattr(
-                        self.controller, "recovery_prompt", ""
-                    ),
+                    "recovery_prompt": getattr(self.controller, "recovery_prompt", ""),
                     "can_undo": bool(recent_changes),
                     "recent_changes": [
                         {
@@ -530,6 +636,14 @@ class BridgeClient:
                         for workflow in workflows
                     ],
                     "workflow_run": self._workflow_run,
+                    "pending_questions": [
+                        {"id": request_id, "questions": [asdict(q) for q in questions]}
+                        for request_id, questions in getattr(
+                            self.controller,
+                            "pending_questions",
+                            {},
+                        ).items()
+                    ],
                     "pending_approvals": [
                         {
                             "id": approval.id,
@@ -547,10 +661,7 @@ class BridgeClient:
         return bool(
             self._workflow_task
             and not self._workflow_task.done()
-            and (
-                not workflow_id
-                or (self._workflow_run or {}).get("workflow_id") == workflow_id
-            )
+            and (not workflow_id or (self._workflow_run or {}).get("workflow_id") == workflow_id)
         )
 
     def _start_workflow(self, workflow_id: str) -> None:
@@ -570,8 +681,7 @@ class BridgeClient:
             "state": "running",
             "current_step": 0,
             "steps": [
-                {"prompt": prompt, "state": "pending", "error": ""}
-                for prompt in workflow.steps
+                {"prompt": prompt, "state": "pending", "error": ""} for prompt in workflow.steps
             ],
         }
         self._workflow_task = asyncio.create_task(self._run_workflow(workflow))
@@ -602,9 +712,7 @@ class BridgeClient:
                     return
                 step["state"] = "completed"
             self._workflow_run["state"] = "completed"
-            self.sink.emit(
-                Event(kind=Kind.NOTICE, text=f"工作流“{workflow.name}”已完成。")
-            )
+            self.sink.emit(Event(kind=Kind.NOTICE, text=f"工作流“{workflow.name}”已完成。"))
         except asyncio.CancelledError:
             self._workflow_run["state"] = "cancelled"
             current = int(self._workflow_run.get("current_step", 0))
@@ -634,11 +742,82 @@ class BridgeClient:
             pass
 
     async def close(self) -> None:
+        if self._runtime:
+            self._runtime.detach(self)
+            if self._send_task:
+                self._send_task.cancel()
+                await asyncio.gather(self._send_task, return_exceptions=True)
+            return
         await self._cancel_workflow()
         if self._send_task:
             self._send_task.cancel()
         if self.controller is not None:
             await self.controller.close()
+        if self._local_controller is not None:
+            await self._local_controller.close()
+
+
+class DesktopRuntime:
+    """Own execution for the bridge lifetime, independently of UI sockets.
+
+    One bridge shares one selected session across authenticated views. This is
+    process-local ownership, not a clustered scheduler or crash auto-retry.
+    """
+
+    def __init__(self) -> None:
+        self.clients: set[BridgeClient] = set()
+        self.owner = BridgeClient(_BroadcastSocket(self))
+        self._lock = asyncio.Lock()
+        self._events: deque[str] = deque(maxlen=4096)
+
+    async def start(self) -> None:
+        await self.owner.start()
+
+    async def attach(self, client: BridgeClient) -> None:
+        async with self._lock:
+            await self.owner._ensure_controller()
+            await self.owner.sink.queue.join()
+            self.clients.add(client)
+            await self.owner.send_status()
+            # Only replay transient output while a turn is active. Finished
+            # turns come from SQLite/remote history and must not be appended twice.
+            if self.owner.controller.session.state.value != "idle":
+                for data in self._events:
+                    client.sink.queue.put_nowait(data)
+
+    def detach(self, client: BridgeClient) -> None:
+        self.clients.discard(client)
+
+    async def handle_message(self, raw: str) -> None:
+        async with self._lock:
+            await self.owner.handle_message(raw)
+
+    async def close(self) -> None:
+        await self.owner.close()
+
+
+class _BroadcastSocket:
+    def __init__(self, runtime: DesktopRuntime) -> None:
+        self.runtime = runtime
+
+    async def send(self, data: str) -> None:
+        event = json.loads(data)
+        kind = event.get("kind")
+        if kind == "turn_started":
+            self.runtime._events.clear()
+        if kind == "history_committed":
+            self.runtime._events.clear()
+            return
+        if kind not in {"status", "workspace_suggestions"}:
+            self.runtime._events.append(data)
+        for client in tuple(self.runtime.clients):
+            try:
+                client.sink.queue.put_nowait(data)
+            except asyncio.QueueFull:
+                self.runtime.detach(client)
+                # A slow view must reconnect from history rather than consume
+                # unbounded RAM or stop another view's agent execution.
+                await client.ws.close(code=1013, reason="Reconnect to resync session history")
 
 
 async def run_server(
@@ -655,9 +834,18 @@ async def run_server(
         required_token = os.environ.get("AXIOM_SECURITY_TOKEN", "").strip()
 
     logger.info("Axiom desktop bridge starting at ws://%s:%s", host, port)
+    runtime = DesktopRuntime()
+    # Only startup may classify old running records as interrupted. Opening a
+    # second store for a remote connection must not corrupt a live local session.
+    SessionStore(default_history_path(), recover_running=True)
+    await runtime.start()
 
     async def handler(websocket: Any) -> None:
-        client = await BridgeClient.create(websocket, required_token=required_token)
+        client = await BridgeClient.create(
+            websocket,
+            required_token=required_token,
+            runtime=runtime,
+        )
         await client.start()
         try:
             async for raw in websocket:
@@ -670,11 +858,7 @@ async def run_server(
     stopped = asyncio.Event()
     parent_pid_text = os.environ.get("REASONIX_PARENT_PID", "").strip()
     parent_pid = int(parent_pid_text) if parent_pid_text.isdigit() else 0
-    watcher = (
-        asyncio.create_task(_watch_parent(parent_pid, stopped))
-        if parent_pid > 0
-        else None
-    )
+    watcher = asyncio.create_task(_watch_parent(parent_pid, stopped)) if parent_pid > 0 else None
     try:
         async with websockets.serve(handler, host, port):
             if watcher:
@@ -684,6 +868,7 @@ async def run_server(
     finally:
         if watcher:
             watcher.cancel()
+        await runtime.close()
 
 
 async def main() -> None:
